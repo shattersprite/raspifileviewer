@@ -10,6 +10,7 @@ import json
 import os
 import queue
 import re
+import secrets
 import shutil
 import socket
 import subprocess
@@ -20,7 +21,9 @@ import uuid
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-from flask import Flask, Response, abort, jsonify, request, send_from_directory
+from flask import Flask, Response, abort, jsonify, request, send_from_directory, stream_with_context
+
+from auth import Auth
 
 BASE_DIR = Path(__file__).resolve().parent
 STATIC_DIR = BASE_DIR / "static"
@@ -81,7 +84,10 @@ def current_commit():
 
 SERVER_INFO = {"app": "piscreen", "version": read_version(), "commit": current_commit()}
 
-_state = {"items": [], "view": default_view(), "display": None, "server": SERVER_INFO}
+AUTH = Auth(DATA_DIR / "settings.json")
+
+_state = {"items": [], "view": default_view(), "display": None, "server": SERVER_INFO,
+          "screen": AUTH.public()}
 _update_lock = threading.Lock()
 _update_cache = {"time": 0.0, "data": None}
 
@@ -222,6 +228,128 @@ def control_urls():
     return {"ip_url": f"http://{lan_ip()}:{PORT}/", "host_url": f"http://{host}.local:{PORT}/"}
 
 
+# ------------------------------------------------------------------- access control
+
+COOKIE_YEAR = 365 * 24 * 3600
+PUBLIC_PATHS = {"/", "/display", "/api/version", "/api/info", "/api/qr.svg",
+                "/api/auth", "/api/auth/unlock", "/api/auth/admin", "/api/auth/logout"}
+
+
+def body():
+    return request.get_json(force=True, silent=True) or {}
+
+
+def creds():
+    """Credentials come from headers (desktop app) or cookies (web browsers)."""
+    h, c = request.headers, request.cookies
+    return {"device": h.get("X-PiScreen-Device") or c.get("ps_device"),
+            "access": h.get("X-PiScreen-Access") or c.get("ps_access"),
+            "admin": h.get("X-PiScreen-Admin") or c.get("ps_admin")}
+
+
+def is_local():
+    return request.remote_addr in ("127.0.0.1", "::1", "::ffff:127.0.0.1")
+
+
+def allowed():
+    return is_local() or AUTH.has_access(creds())
+
+
+def is_admin():
+    return AUTH.is_admin(creds()["admin"])
+
+
+@app.before_request
+def guard():
+    path = request.path
+    if path in PUBLIC_PATHS or path.startswith("/static/"):
+        return None
+    if path.startswith("/api/admin/"):
+        return None if is_admin() else (jsonify(error="Enter the admin code first."), 403)
+    if not allowed():
+        return jsonify(error="locked", screen=AUTH.public()), 401
+    return None
+
+
+def screen_changed():
+    """Lock or name changed: update everyone, and make clients re-check their access."""
+    with _lock:
+        _state["screen"] = AUTH.public()
+        broadcast("state", _state)
+    broadcast("auth", AUTH.public())
+
+
+@app.get("/api/auth")
+def auth_status():
+    c = creds()
+    resp = jsonify({**AUTH.public(), "access": allowed(), "admin": is_admin(),
+                    "this_device": AUTH.is_locked_device(c["device"])})
+    if not c["device"]:  # give web browsers a stable id so "only this device" can work for them too
+        resp.set_cookie("ps_device", secrets.token_hex(16), max_age=COOKIE_YEAR, httponly=True, samesite="Lax")
+    return resp
+
+
+@app.post("/api/auth/unlock")
+def auth_unlock():
+    ok, wait = AUTH.try_passcode(str(body().get("passcode", "")), request.remote_addr)
+    if wait:
+        return jsonify(error=f"Too many wrong tries. Wait {wait} seconds."), 429
+    if not ok:
+        return jsonify(error="Wrong passcode."), 403
+    token = AUTH.access_token()
+    resp = jsonify(ok=True, access_token=token)
+    resp.set_cookie("ps_access", token, max_age=COOKIE_YEAR, httponly=True, samesite="Lax")
+    return resp
+
+
+@app.post("/api/auth/admin")
+def auth_admin():
+    ok, wait = AUTH.try_admin(str(body().get("code", "")), request.remote_addr)
+    if wait:
+        return jsonify(error=f"Too many wrong tries. Wait {wait} seconds."), 429
+    if not ok:
+        return jsonify(error="Wrong admin code."), 403
+    token = AUTH.admin_token()
+    resp = jsonify(ok=True, admin_token=token)
+    resp.set_cookie("ps_admin", token, httponly=True, samesite="Lax")
+    return resp
+
+
+@app.post("/api/auth/logout")
+def auth_logout():
+    resp = jsonify(ok=True)
+    resp.delete_cookie("ps_admin")
+    resp.delete_cookie("ps_access")
+    return resp
+
+
+@app.get("/api/admin/settings")
+def admin_get():
+    return jsonify({**AUTH.public(), "this_device": AUTH.is_locked_device(creds()["device"])})
+
+
+@app.post("/api/admin/settings")
+def admin_set():
+    data = body()
+    err = AUTH.update(name=data.get("name"), mode=data.get("lock"), passcode=data.get("passcode"),
+                      device_id=creds()["device"], device_name=data.get("device_name"))
+    if err:
+        return jsonify(error=err), 400
+    screen_changed()
+    return jsonify({**AUTH.public(), "this_device": AUTH.is_locked_device(creds()["device"])})
+
+
+@app.post("/api/admin/code")
+def admin_code():
+    err = AUTH.set_admin_code(body().get("code"))
+    if err:
+        return jsonify(error=err), 400
+    token = AUTH.admin_token()
+    resp = jsonify(ok=True, admin_token=token)
+    resp.set_cookie("ps_admin", token, httponly=True, samesite="Lax")
+    return resp
+
+
 def static_page(name):
     resp = send_from_directory(STATIC_DIR, name)
     resp.headers["Cache-Control"] = "no-cache"
@@ -290,15 +418,19 @@ def events():
             yield first
             while True:
                 try:
-                    yield q.get(timeout=15)
+                    msg = q.get(timeout=15)
                 except queue.Empty:
-                    yield ": keep-alive\n\n"
+                    msg = ": keep-alive\n\n"
+                if not allowed():  # the screen was locked while this client was connected
+                    yield sse("auth", AUTH.public())
+                    return
+                yield msg
         finally:
             with _lock:
                 if q in _subscribers:
                     _subscribers.remove(q)
 
-    return Response(stream(), mimetype="text/event-stream",
+    return Response(stream_with_context(stream()), mimetype="text/event-stream",
                     headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
 
@@ -470,7 +602,7 @@ def display_info():
 
 @app.get("/api/version")
 def version():
-    return jsonify(SERVER_INFO)
+    return jsonify({**SERVER_INFO, "name": AUTH.s["name"], "lock": AUTH.s["lock"]["mode"]})
 
 
 @app.get("/api/update")

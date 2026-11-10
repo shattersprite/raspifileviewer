@@ -92,9 +92,32 @@ Uploaded files are stored in `data/`, and they're kept across reboots. Delete th
 | `PISCREEN_PAGE_PX` | `2400` | Resolution of the long side of a rendered PDF page. Lower it (for example 1600) for faster conversion on older Pis. |
 | `PISCREEN_DATA` | `./data` | Where uploads are stored |
 
+## Admin and locking the screen
+
+In the desktop app, open **Admin** and enter the admin code. The default code is **6952**.
+
+| Setting | What it does |
+|---|---|
+| **Screen name** | Shown on the Pi's welcome screen, in the app, and on the remote. |
+| **Anyone on the network** | No lock. This is the default. |
+| **Passcode** | Phones, browsers and other computers must enter your passcode before they can share or control the screen. |
+| **Only this computer** | Only the computer you set this from can share or control the screen. Everyone else sees a locked screen. |
+| **Admin code** | Change the admin code. |
+
+- Changing the lock signs everyone out immediately, including remotes that are already open.
+- The admin code always gets you in, so a lost computer can't lock you out for good.
+- After 5 wrong guesses, that device has to wait 60 seconds before trying again.
+
+> **Change the admin code after installing.** This repository is public, so the default code is too.
+
+To reset everything, run this on the Pi (it removes the lock, the name and the admin code):
+```bash
+rm ~/piscreen/data/settings.json && sudo systemctl restart piscreen
+```
+
 ## Security note
 
-There is no login: anyone on your network can upload to the screen and control it. That's fine on a home network. Don't forward port 8080 to the internet.
+PiScreen is built for your home or office network. Don't forward port 8080 to the internet: the connection isn't encrypted (plain HTTP), so passcodes could be read by anyone between you and the Pi.
 
 ## Trying it on a PC
 

@@ -89,14 +89,43 @@
   #library button { min-height: 38px; padding: 6px 12px; }
   .empty { color: var(--muted); font-size: 14px; text-align: center; padding: 10px 0; }
   .hidden { display: none !important; }
+  .pill { font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 99px; background: var(--btn); color: var(--muted); }
+
+  /* Lock screen */
+  #lockScreen { position: fixed; inset: 0; z-index: 50; background: var(--bg); display: flex; align-items: center;
+    justify-content: center; padding: 24px 16px; }
+  .lock-card { width: min(380px, 100%); background: var(--card); border: 1px solid var(--line); border-radius: 18px;
+    padding: 28px 22px; text-align: center; }
+  .lock-icon { width: 56px; height: 56px; border-radius: 16px; margin: 0 auto 14px; display: flex; align-items: center;
+    justify-content: center; font-size: 26px; background: color-mix(in srgb, var(--accent) 14%, transparent); }
+  .lock-card h2 { margin: 0 0 4px; font-size: 20px; }
+  .lock-card p { margin: 0 0 18px; color: var(--muted); }
+  #passInput { width: 100%; min-height: 52px; font: 600 22px/1 inherit; letter-spacing: .3em; text-align: center;
+    border-radius: 12px; border: 1px solid var(--line); background: var(--bg); color: var(--fg); }
+  #lockErr { color: var(--danger); font-size: 13px; min-height: 18px; margin: 8px 0; }
+  .lock-card button { width: 100%; min-height: 48px; }
 </style>
 </head>
 <body>
 <main>
   <header>
-    <h1>PiScreen</h1>
+    <h1 id="screenTitle">PiScreen</h1>
+    <span id="lockPill" class="pill hidden">🔒 Locked</span>
     <span class="conn" id="conn">Connecting…</span>
   </header>
+
+  <div id="lockScreen" class="hidden">
+    <form class="lock-card" id="lockForm">
+      <div class="lock-icon">🔒</div>
+      <h2 id="lockTitle">PiScreen is locked</h2>
+      <p id="lockText">Enter the passcode to control this screen.</p>
+      <div id="passArea">
+        <input id="passInput" type="password" inputmode="numeric" autocomplete="off" aria-label="Passcode">
+        <div id="lockErr"></div>
+        <button class="primary" type="submit">Unlock</button>
+      </div>
+    </form>
+  </div>
 
   <section class="card">
     <h2>On screen</h2>
@@ -167,6 +196,7 @@ let pagesKey = '', libKey = '';
 async function api(action, extra = {}) {
   const r = await fetch('/api/control', { method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ action, ...extra }) });
+  if (r.status === 401) { start(); return; }
   if (!r.ok) { const e = await r.json().catch(() => ({})); alert(e.error || 'Request failed'); }
 }
 
@@ -353,9 +383,45 @@ function upload(files) {
   xhr.send(fd);
 }
 
+// Access / lock screen
+let events = null;
+async function checkAccess() {
+  let a;
+  try { a = await (await fetch('/api/auth')).json(); } catch { return false; }
+  $('#screenTitle').textContent = a.name;
+  document.title = a.name + ' Remote';
+  $('#lockPill').classList.toggle('hidden', a.lock === 'off');
+  if (a.access) { $('#lockScreen').classList.add('hidden'); return true; }
+  if (events) { events.close(); events = null; }
+  $('#lockTitle').textContent = `${a.name} is locked`;
+  const pass = a.lock === 'passcode';
+  $('#lockText').textContent = pass ? 'Enter the passcode to control this screen.'
+    : `Only ${a.device_name || "the admin's computer"} can control this screen right now.`;
+  $('#passArea').classList.toggle('hidden', !pass);
+  $('#lockScreen').classList.remove('hidden');
+  if (pass) setTimeout(() => $('#passInput').focus(), 50);
+  return false;
+}
+
+$('#lockForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const r = await fetch('/api/auth/unlock', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ passcode: $('#passInput').value }) });
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) { $('#lockErr').textContent = d.error || 'Could not unlock'; $('#passInput').select(); return; }
+  $('#passInput').value = ''; $('#lockErr').textContent = '';
+  start();
+});
+
+async function start() {
+  if (await checkAccess()) connect();
+}
+
 // Live updates
 function connect() {
-  const es = new EventSource('/api/events');
+  if (events) events.close();
+  const es = events = new EventSource('/api/events');
+  es.addEventListener('auth', () => { es.close(); start(); });
   let commit = null;
   es.addEventListener('state', (e) => {
     S = JSON.parse(e.data);
@@ -365,9 +431,12 @@ function connect() {
     render();
   });
   es.onopen = () => { $('#conn').classList.add('on'); $('#conn').textContent = 'Connected'; };
-  es.onerror = () => { $('#conn').classList.remove('on'); $('#conn').textContent = 'Reconnecting…'; };
+  es.onerror = () => {
+    $('#conn').classList.remove('on'); $('#conn').textContent = 'Reconnecting…';
+    if (es.readyState === EventSource.CLOSED) setTimeout(start, 2000); // e.g. locked (401): show the lock screen
+  };
 }
-connect();
+start();
 </script>
 </body>
 </html>

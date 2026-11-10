@@ -18,14 +18,34 @@ const declinedServerUpdates = new Set();
 // ------------------------------------------------------------------ config
 
 const configPath = () => path.join(app.getPath('userData'), 'config.json');
+let config = null;
 function readConfig() {
-  try { return JSON.parse(fs.readFileSync(configPath(), 'utf8')); } catch { return {}; }
+  if (!config) {
+    try { config = JSON.parse(fs.readFileSync(configPath(), 'utf8')); } catch { config = {}; }
+    // A random id for this computer, used for "Only this computer" locks.
+    if (!config.deviceId) writeConfig({ deviceId: require('crypto').randomBytes(16).toString('hex') });
+  }
+  return config;
 }
 function writeConfig(patch) {
-  const cfg = { ...readConfig(), ...patch };
+  config = { ...(config || {}), ...patch };
   fs.mkdirSync(path.dirname(configPath()), { recursive: true });
-  fs.writeFileSync(configPath(), JSON.stringify(cfg, null, 2));
-  return cfg;
+  fs.writeFileSync(configPath(), JSON.stringify(config, null, 2));
+  return config;
+}
+
+// Saved unlock/admin tokens for each Pi: { [serverUrl]: { access, admin } }
+function tokensFor(url) {
+  return (readConfig().tokens || {})[url] || {};
+}
+
+// Headers for requests the main process makes itself (they skip the session hooks).
+function piHeaders() {
+  const t = tokensFor(serverUrl);
+  const h = { 'X-PiScreen-Device': readConfig().deviceId };
+  if (t.access) h['X-PiScreen-Access'] = t.access;
+  if (t.admin) h['X-PiScreen-Admin'] = t.admin;
+  return h;
 }
 
 // ------------------------------------------------------------------ window
@@ -47,6 +67,7 @@ function createWindow() {
     },
   });
   win.loadFile(path.join(__dirname, 'renderer', 'index.html'));
+  win.on('closed', () => { win = null; hideToolbar(); });
 
   // Links (e.g. to the virtual display driver) open in the normal browser.
   win.webContents.setWindowOpenHandler(({ url }) => {
@@ -55,8 +76,46 @@ function createWindow() {
   });
 }
 
+// ------------------------------------------------------------------ floating toolbar (while sharing)
+
+let toolbar = null;
+function showToolbar() {
+  if (toolbar && !toolbar.isDestroyed()) { toolbar.showInactive(); return; }
+  const area = screen.getPrimaryDisplay().workArea;
+  const width = 470, height = 64;
+  toolbar = new BrowserWindow({
+    width, height,
+    x: Math.round(area.x + (area.width - width) / 2), y: area.y + 12,
+    frame: false, transparent: true, resizable: false, maximizable: false, minimizable: false,
+    alwaysOnTop: true, skipTaskbar: true, show: false, focusable: true,
+    webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true, sandbox: true },
+  });
+  toolbar.setAlwaysOnTop(true, 'screen-saver');
+  toolbar.setContentProtection(true); // keep the toolbar itself out of the shared picture
+  toolbar.loadFile(path.join(__dirname, 'renderer', 'toolbar.html'));
+  toolbar.once('ready-to-show', () => toolbar.showInactive());
+  toolbar.webContents.on('did-finish-load', () => win && win.webContents.send('toolbar:action', 'sync'));
+  toolbar.on('closed', () => { toolbar = null; });
+}
+function hideToolbar() {
+  if (toolbar && !toolbar.isDestroyed()) toolbar.close();
+}
+
 function setupSession() {
   const ses = session.defaultSession;
+
+  // Send this computer's id and saved tokens with every request to the connected Pi
+  // (covers the app page, the embedded remote, live updates and media).
+  ses.webRequest.onBeforeSendHeaders({ urls: ['http://*/*'] }, (details, callback) => {
+    const headers = details.requestHeaders;
+    if (serverUrl && details.url.startsWith(serverUrl + '/')) {
+      const t = tokensFor(serverUrl);
+      headers['X-PiScreen-Device'] = readConfig().deviceId;
+      if (t.access) headers['X-PiScreen-Access'] = t.access;
+      if (t.admin) headers['X-PiScreen-Admin'] = t.admin;
+    }
+    callback({ requestHeaders: headers });
+  });
 
   // The app page (file://) talks to the Pi's API; allow those cross-origin responses.
   ses.webRequest.onHeadersReceived({ urls: ['http://*/*'] }, (details, callback) => {
@@ -83,9 +142,42 @@ function setupSession() {
 
 // ------------------------------------------------------------------ IPC
 
-ipcMain.handle('config:get', () => readConfig());
-ipcMain.handle('config:set', (_e, patch) => writeConfig(patch));
+ipcMain.handle('config:get', () => {
+  const { tokens, ...rest } = readConfig(); // tokens stay in the main process
+  return rest;
+});
+ipcMain.handle('config:set', (_e, patch) => {
+  const { tokens, deviceId, ...safe } = patch || {};
+  writeConfig(safe);
+  return true;
+});
 ipcMain.handle('app:version', () => app.getVersion());
+ipcMain.handle('app:computer-name', () => os.hostname());
+
+// Unlock/admin tokens for the current Pi. Pass null to forget one.
+ipcMain.handle('tokens:set', (_e, patch) => {
+  if (!serverUrl) return false;
+  const all = { ...(readConfig().tokens || {}) };
+  const cur = { ...(all[serverUrl] || {}) };
+  for (const [k, v] of Object.entries(patch || {})) {
+    if (!['access', 'admin'].includes(k)) continue;
+    if (v) cur[k] = String(v); else delete cur[k];
+  }
+  all[serverUrl] = cur;
+  writeConfig({ tokens: all });
+  return { access: !!cur.access, admin: !!cur.admin };
+});
+
+ipcMain.on('toolbar:show', (_e, show) => (show ? showToolbar() : hideToolbar()));
+ipcMain.on('toolbar:state', (_e, state) => {
+  if (toolbar && !toolbar.isDestroyed()) toolbar.webContents.send('toolbar:state', state);
+});
+ipcMain.on('toolbar:action', (_e, action) => {
+  if (!win) return;
+  if (action === 'open') { win.show(); win.restore(); win.focus(); }
+  win.webContents.send('toolbar:action', action);
+});
+ipcMain.on('window:minimize', () => win && win.minimize());
 
 ipcMain.handle('sources:list', async () => {
   const displays = screen.getAllDisplays();
@@ -232,7 +324,8 @@ async function checkServerUpdate(manual) {
   if (!serverUrl) return;
   let info;
   try {
-    const res = await fetch(`${serverUrl}/api/update${manual ? '?force=1' : ''}`, { signal: AbortSignal.timeout(90000) });
+    const res = await fetch(`${serverUrl}/api/update${manual ? '?force=1' : ''}`, { headers: piHeaders(), signal: AbortSignal.timeout(90000) });
+    if (res.status === 401) { if (manual) status('Unlock the Pi first to check it for updates.'); return; }
     info = await res.json();
   } catch (err) {
     if (manual) status('Could not check the Pi for updates: ' + err.message);
@@ -260,7 +353,7 @@ async function checkServerUpdate(manual) {
 
   status('Updating the Pi…');
   try {
-    const res = await fetch(`${serverUrl}/api/update`, { method: 'POST', signal: AbortSignal.timeout(200000) });
+    const res = await fetch(`${serverUrl}/api/update`, { method: 'POST', headers: piHeaders(), signal: AbortSignal.timeout(200000) });
     const out = await res.json();
     if (!res.ok) throw new Error(out.error || res.statusText);
   } catch (err) {
@@ -297,4 +390,5 @@ if (!app.requestSingleInstanceLock()) {
     setInterval(() => checkServerUpdate(false), 30 * 60 * 1000);
   });
   app.on('window-all-closed', () => app.quit());
+  app.on('before-quit', hideToolbar);
 }
