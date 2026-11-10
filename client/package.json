@@ -1,0 +1,49 @@
+{
+  "name": "piscreen-client",
+  "productName": "PiScreen",
+  "version": "1.1.0",
+  "description": "Send files and your screen to a Raspberry Pi running PiScreen",
+  "author": "shattersprite",
+  "license": "MIT",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder --win --publish never",
+    "release": "electron-builder --win --publish always"
+  },
+  "dependencies": {
+    "electron-updater": "^6.8.11"
+  },
+  "devDependencies": {
+    "electron": "^45.2.3",
+    "electron-builder": "^26.18.0"
+  },
+  "build": {
+    "appId": "com.shattersprite.piscreen",
+    "productName": "PiScreen",
+    "files": [
+      "main.js",
+      "preload.js",
+      "renderer/**/*"
+    ],
+    "win": {
+      "target": "nsis",
+      "artifactName": "PiScreen-Setup-${version}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "shattersprite",
+        "repo": "raspifileviewer",
+        "releaseType": "release"
+      }
+    ]
+  },
+  "allowScripts": {
+    "electron@45.2.3": true
+  }
+}

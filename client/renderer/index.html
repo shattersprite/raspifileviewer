@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy"
+  content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src * data: blob:; connect-src *; media-src * blob: mediastream:; frame-src http: https:">
+<title>PiScreen</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand"><span class="logo"></span>PiScreen</div>
+    <form id="connectForm" class="connect">
+      <span id="dot" class="dot"></span>
+      <input id="address" placeholder="Pi address, e.g. 192.168.1.50" spellcheck="false" autocomplete="off">
+      <button type="submit">Connect</button>
+      <button type="button" id="findBtn" class="ghost">Find Pi</button>
+    </form>
+    <div class="right">
+      <span id="updateStatus" class="muted"></span>
+      <button id="updatesBtn" class="ghost small">Check for updates</button>
+      <span id="appVersion" class="muted small"></span>
+    </div>
+  </header>
+
+  <!-- Shown until we're connected -->
+  <section id="setup" class="setup">
+    <div class="setup-card">
+      <h1>Connect to your Pi</h1>
+      <p class="muted">Make sure the Pi is on and PiScreen is installed. Searching your network…</p>
+      <ul id="found" class="found"></ul>
+      <p id="setupMsg" class="muted small"></p>
+    </div>
+  </section>
+
+  <main id="main" class="hidden">
+    <nav class="tabs">
+      <button class="tab active" data-tab="remote">Files &amp; remote</button>
+      <button class="tab" data-tab="share">Share screen <span id="liveBadge" class="badge hidden">LIVE</span></button>
+    </nav>
+
+    <section id="tab-remote" class="tabpane">
+      <iframe id="remoteFrame" title="PiScreen remote"></iframe>
+    </section>
+
+    <section id="tab-share" class="tabpane hidden">
+      <div class="share-layout">
+        <div class="sources">
+          <div class="row-head">
+            <h2>Choose what to show on the Pi</h2>
+            <button id="refreshSources" class="ghost small">Refresh</button>
+          </div>
+          <h3>Screens</h3>
+          <div id="screens" class="grid"></div>
+          <h3>Windows</h3>
+          <div id="windows" class="grid"></div>
+        </div>
+
+        <aside class="panel">
+          <div class="card">
+            <div id="piInfo" class="muted small">Pi screen: unknown</div>
+            <label class="field">Quality
+              <select id="quality">
+                <option value="sharp">Sharp text · 30 fps</option>
+                <option value="smooth">Smooth motion · 60 fps</option>
+                <option value="light">Light (slow Wi-Fi) · 15 fps</option>
+              </select>
+            </label>
+            <label class="check" id="audioRow"><input type="checkbox" id="audio"> Play computer sound on the Pi</label>
+            <button id="shareBtn" class="primary big" disabled>Start sharing</button>
+            <div id="shareStatus" class="muted small"></div>
+            <div id="stats" class="muted small mono"></div>
+          </div>
+
+          <details class="card guide" id="guide">
+            <summary>Use the Pi as an extra monitor</summary>
+            <p>Picking your main screen <b>mirrors</b> it. To <b>extend</b> your desktop onto the Pi like a second monitor,
+              Windows needs a virtual display to extend onto:</p>
+            <ol>
+              <li>Install the free, open-source
+                <a href="https://github.com/VirtualDrivers/Virtual-Display-Driver/releases" target="_blank">Virtual Display Driver</a>
+                (one-time setup).</li>
+              <li>Open <b>Windows Settings → System → Display</b>, choose <b>Extend these displays</b>, and set the new
+                display's resolution to <b id="piRes">match the Pi</b>.</li>
+              <li>Click <b>Refresh</b>, pick the new screen here, and press <b>Start sharing</b>.</li>
+            </ol>
+            <p class="muted small">Then drag windows onto it, just like a real monitor. Your mouse shows on the Pi when it's on that screen.</p>
+          </details>
+        </aside>
+      </div>
+    </section>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>

@@ -21,7 +21,8 @@
   .fit-width #stage { overflow-y: auto; }
   .fit-width #img { position: static; transform: rotate(var(--rot)); width: 100vw; height: auto; }
 
-  .mode-img #img, .mode-video #vid { display: block; }
+  .mode-img #img, .mode-video #vid, .mode-stream #svid { display: block; }
+  #svid { transform: translate(-50%, -50%); width: 100vw; height: 100vh; object-fit: contain; }
 
   .screen { position: fixed; inset: 0; display: none; flex-direction: column; align-items: center;
     justify-content: center; gap: 2vh; text-align: center; padding: 4vw; }
@@ -52,6 +53,7 @@
   <div id="stage">
     <img id="img" class="media" alt="">
     <video id="vid" class="media" playsinline></video>
+    <video id="svid" class="media" playsinline autoplay></video>
   </div>
 
   <div id="idle" class="screen">
@@ -68,13 +70,18 @@
 
 <script>
 const $ = (s) => document.querySelector(s);
-const stage = $('#stage'), img = $('#img'), vid = $('#vid');
+const stage = $('#stage'), img = $('#img'), vid = $('#vid'), svid = $('#svid');
 const pad = (n) => String(n).padStart(4, '0');
 let S = null;
 let wantedImg = null;
+let serverCommit = null;
+let rtc = null; // { session, pc } for an incoming screen share
+
+const post = (url, body) => fetch(url, {
+  method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
 
 function setMode(mode) {
-  document.body.classList.remove('mode-idle', 'mode-msg', 'mode-img', 'mode-video');
+  document.body.classList.remove('mode-idle', 'mode-msg', 'mode-img', 'mode-video', 'mode-stream');
   document.body.classList.add('mode-' + mode);
   if (mode !== 'video' && vid.getAttribute('src')) {
     vid.pause(); vid.removeAttribute('src'); vid.dataset.src = ''; vid.load();
@@ -123,11 +130,74 @@ async function loadInfo() {
   } catch (e) {}
 }
 
+// ---- Screen sharing from the desktop app (WebRTC) ----
+function closeRtc() {
+  if (!rtc) return;
+  if (rtc.pc) rtc.pc.close();
+  if (rtc.retry) clearTimeout(rtc.retry);
+  rtc = null;
+  svid.srcObject = null;
+}
+
+function waitForIce(pc) {
+  if (pc.iceGatheringState === 'complete') return Promise.resolve();
+  return new Promise((resolve) => {
+    const done = () => { if (pc.iceGatheringState === 'complete') resolve(); };
+    pc.addEventListener('icegatheringstatechange', done);
+    setTimeout(resolve, 2500);
+  });
+}
+
+function handleStream(stream) {
+  if (!rtc || rtc.session !== stream.session) {
+    closeRtc();
+    rtc = { session: stream.session, pc: null, live: false };
+    post('/api/signal', { type: 'ready', session: stream.session });
+  }
+  if (rtc.live) setMode('stream');
+  else message(`Connecting to ${stream.source}…`);
+}
+
+async function onOffer(sig) {
+  if (!rtc || sig.session !== rtc.session) return;
+  if (rtc.pc) rtc.pc.close();
+  const pc = new RTCPeerConnection({ iceServers: [] });
+  const me = rtc;
+  me.pc = pc; me.live = false;
+  pc.ontrack = (e) => {
+    pc.getReceivers().forEach((r) => { if ('jitterBufferTarget' in r) r.jitterBufferTarget = 0; });
+    svid.srcObject = e.streams[0] || new MediaStream([e.track]);
+    svid.play().catch(() => { svid.muted = true; svid.play().catch(() => {}); });
+    me.live = true;
+    if (S && S.view.stream && S.view.stream.session === me.session) setMode('stream');
+  };
+  pc.onconnectionstatechange = () => {
+    if (rtc !== me || me.pc !== pc) return;
+    if (pc.connectionState === 'failed') {
+      // Ask the app to try again; if the app is gone, the remote's Stop button ends the share.
+      message('Connection lost — retrying…');
+      me.live = false;
+      me.retry = setTimeout(() => post('/api/signal', { type: 'ready', session: me.session }), 2000);
+    }
+  };
+  await pc.setRemoteDescription({ type: 'offer', sdp: sig.sdp });
+  await pc.setLocalDescription(await pc.createAnswer());
+  await waitForIce(pc);
+  post('/api/signal', { type: 'answer', session: me.session, sdp: pc.localDescription.sdp });
+}
+
 function render() {
   const v = S.view;
   const item = S.items.find((i) => i.id === v.item);
   const rot = v.rotation % 360;
   document.body.classList.toggle('is-blank', v.blank);
+
+  if (v.stream) {
+    document.documentElement.style.setProperty('--rot', '0deg');
+    handleStream(v.stream);
+    return;
+  }
+  closeRtc();
   document.documentElement.style.setProperty('--rot', rot + 'deg');
   document.body.classList.remove('rot0', 'rot90', 'rot180', 'rot270', 'fit-contain', 'fit-width', 'fit-cover');
   document.body.classList.add('rot' + rot);
@@ -168,12 +238,31 @@ function command(c) {
 
 function connect() {
   const es = new EventSource('/api/events');
-  es.addEventListener('state', (e) => { S = JSON.parse(e.data); render(); });
+  es.addEventListener('state', (e) => {
+    S = JSON.parse(e.data);
+    // The server was updated and restarted: load the new version of this page.
+    const c = S.server && S.server.commit;
+    if (serverCommit && c && c !== serverCommit) { location.reload(); return; }
+    serverCommit = c || serverCommit;
+    render();
+  });
   es.addEventListener('command', (e) => command(JSON.parse(e.data)));
+  es.addEventListener('signal', (e) => {
+    const sig = JSON.parse(e.data);
+    if (sig.type === 'offer') onOffer(sig).catch((err) => message('Screen share failed: ' + err.message, true));
+  });
   es.onopen = () => document.body.classList.remove('is-offline');
   es.onerror = () => document.body.classList.add('is-offline');
 }
 connect();
+
+// Tell the server this screen's resolution, so the app can match it.
+function reportSize() {
+  const dpr = window.devicePixelRatio || 1;
+  post('/api/display-info', { width: Math.round(screen.width * dpr), height: Math.round(screen.height * dpr) });
+}
+reportSize();
+window.addEventListener('resize', reportSize);
 
 // A keyboard or presenter clicker plugged into the Pi works too.
 const send = (action, extra = {}) => fetch('/api/control', {

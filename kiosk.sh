@@ -20,7 +20,7 @@ exec "$BROWSER" \
   --noerrdialogs \
   --disable-infobars \
   --disable-session-crashed-bubble \
-  --disable-features=Translate \
+  --disable-features=Translate,WebRtcHideLocalIpsWithMdns \
   --autoplay-policy=no-user-gesture-required \
   --check-for-update-interval=31536000 \
   --password-store=basic \

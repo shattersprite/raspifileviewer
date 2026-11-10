@@ -13,6 +13,7 @@ import re
 import shutil
 import socket
 import subprocess
+import sys
 import threading
 import time
 import uuid
@@ -51,10 +52,38 @@ _worker = ThreadPoolExecutor(max_workers=1)  # convert one document at a time (P
 
 def default_view():
     return {"item": None, "page": 1, "fit": "contain", "rotation": 0,
-            "blank": False, "playing": True, "muted": False, "loop": True}
+            "blank": False, "playing": True, "muted": False, "loop": True,
+            "stream": None}  # {"session", "source"} while a computer is sharing its screen
 
 
-_state = {"items": [], "view": default_view()}
+# ------------------------------------------------------------------- version / git
+
+def git(*args, timeout=60):
+    return subprocess.run(["git", *args], cwd=BASE_DIR, capture_output=True, text=True, timeout=timeout)
+
+
+IS_GIT = (BASE_DIR / ".git").exists() and shutil.which("git") is not None
+
+
+def read_version():
+    try:
+        return (BASE_DIR / "VERSION").read_text("utf-8").strip()
+    except OSError:
+        return "0.0.0"
+
+
+def current_commit():
+    if not IS_GIT:
+        return ""
+    r = git("rev-parse", "--short", "HEAD")
+    return r.stdout.strip() if r.returncode == 0 else ""
+
+
+SERVER_INFO = {"app": "piscreen", "version": read_version(), "commit": current_commit()}
+
+_state = {"items": [], "view": default_view(), "display": None, "server": SERVER_INFO}
+_update_lock = threading.Lock()
+_update_cache = {"time": 0.0, "data": None}
 
 
 # --------------------------------------------------------------------------- state
@@ -65,7 +94,7 @@ def load_state():
         try:
             loaded = json.loads(STATE_FILE.read_text("utf-8"))
             _state["items"] = [i for i in loaded.get("items", []) if (MEDIA_DIR / i["id"]).is_dir()]
-            _state["view"] = {**default_view(), **loaded.get("view", {})}
+            _state["view"] = {**default_view(), **loaded.get("view", {}), "stream": None}
         except Exception as exc:  # corrupt file: start fresh
             print(f"Could not read {STATE_FILE}: {exc}")
     if _state["view"]["item"] and not find_item(_state["view"]["item"]):
@@ -75,7 +104,7 @@ def load_state():
 def save_state():
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     tmp = STATE_FILE.with_suffix(".tmp")
-    tmp.write_text(json.dumps(_state, indent=1), "utf-8")
+    tmp.write_text(json.dumps({"items": _state["items"], "view": _state["view"]}, indent=1), "utf-8")
     os.replace(tmp, STATE_FILE)
 
 
@@ -102,6 +131,14 @@ def commit():
     with _lock:
         save_state()
         broadcast("state", _state)
+
+
+def end_stream():
+    """Stop any screen share (caller holds the lock and commits)."""
+    stream = _state["view"].get("stream")
+    if stream:
+        _state["view"]["stream"] = None
+        broadcast("signal", {"type": "stop", "session": stream["session"]})
 
 
 def update_item(item_id, **changes):
@@ -296,6 +333,7 @@ def upload():
         created.append(item)
     with _lock:
         if show and created:
+            end_stream()
             _state["view"].update(item=created[0]["id"], page=1, blank=False,
                                   playing=True, rotation=0)
         commit()
@@ -318,7 +356,7 @@ def delete_item(item_id):
 
 @app.post("/api/control")
 def control():
-    data = request.get_json(silent=True) or {}
+    data = request.get_json(force=True, silent=True) or {}
     action = data.get("action")
 
     # One-shot commands for the display (not stored in state).
@@ -338,6 +376,7 @@ def control():
             target = find_item(data.get("item"))
             if not target:
                 return jsonify(error="Unknown item"), 404
+            end_stream()
             v.update(item=target["id"], page=1, blank=False, playing=True, rotation=0)
             pages = target["pages"] if target["kind"] == "pdf" else 1
             go(data.get("page", 1))
@@ -362,7 +401,10 @@ def control():
         elif action == "blank":
             v["blank"] = bool(data["value"]) if "value" in data else not v["blank"]
         elif action == "stop":
-            v.update(item=None, page=1, blank=False)
+            if v.get("stream"):
+                end_stream()  # stop the screen share first; the previous file comes back
+            else:
+                v.update(item=None, page=1, blank=False)
         elif action == "play":
             v["playing"] = bool(data["value"]) if "value" in data else not v["playing"]
         elif action == "mute":
@@ -373,6 +415,101 @@ def control():
             return jsonify(error=f"Unknown action: {action}"), 400
         commit()
         return jsonify(view=v)
+
+
+# ------------------------------------------------------------ screen sharing (WebRTC)
+#
+# The desktop app sends its screen straight to the display page over WebRTC.
+# The server only relays the handshake:
+#   app  -> start   (server marks the stream active; the display sees it in the state)
+#   display -> ready (display is listening)
+#   app  -> offer, display -> answer
+#   either side -> stop
+
+@app.post("/api/signal")
+def signal():
+    data = request.get_json(force=True, silent=True) or {}
+    kind, session = data.get("type"), str(data.get("session", ""))[:64]
+    if not session or kind not in ("start", "ready", "offer", "answer", "stop"):
+        return jsonify(error="Bad signal"), 400
+    with _lock:
+        stream = _state["view"].get("stream")
+        if kind == "start":
+            end_stream()
+            _state["view"]["stream"] = {"session": session,
+                                        "source": str(data.get("source", "Computer"))[:120]}
+            _state["view"]["blank"] = False
+            commit()
+            return jsonify(ok=True)
+        if kind == "stop":
+            if stream and stream["session"] == session:
+                end_stream()
+                commit()
+            return jsonify(ok=True)
+        if not stream or stream["session"] != session:
+            return jsonify(error="No such stream"), 409
+    broadcast("signal", {"type": kind, "session": session, "sdp": data.get("sdp")})
+    return jsonify(ok=True)
+
+
+@app.post("/api/display-info")
+def display_info():
+    data = request.get_json(force=True, silent=True) or {}
+    try:
+        info = {"width": int(data["width"]), "height": int(data["height"])}
+    except (KeyError, TypeError, ValueError):
+        return jsonify(error="Bad size"), 400
+    with _lock:
+        if _state["display"] != info:
+            _state["display"] = info
+            broadcast("state", _state)
+    return jsonify(ok=True)
+
+
+# ------------------------------------------------------------------- self-update
+
+@app.get("/api/version")
+def version():
+    return jsonify(SERVER_INFO)
+
+
+@app.get("/api/update")
+def update_check():
+    if not IS_GIT:
+        return jsonify({**SERVER_INFO, "supported": False,
+                        "reason": "This copy was not installed with git clone, so it can't update itself."})
+    force = request.args.get("force") == "1"
+    with _update_lock:
+        if force or time.time() - _update_cache["time"] > 300 or not _update_cache["data"]:
+            fetch = git("fetch", "--quiet", "origin", timeout=60)
+            if fetch.returncode != 0:
+                data = {"error": "Could not reach GitHub: " + fetch.stderr.strip()[-200:]}
+            else:
+                behind = git("rev-list", "--count", "HEAD..@{u}").stdout.strip()
+                changes = git("log", "--format=%s", "-n", "15", "HEAD..@{u}").stdout.splitlines()
+                latest = git("show", "@{u}:VERSION").stdout.strip()
+                data = {"behind": int(behind or 0), "changes": changes, "latest_version": latest}
+            _update_cache.update(time=time.time(), data=data)
+        data = _update_cache["data"]
+    return jsonify({**SERVER_INFO, "supported": True, **data})
+
+
+def restart_self():
+    print("Restarting after update…")
+    os.execv(sys.executable, [sys.executable, str(BASE_DIR / "server.py")])
+
+
+@app.post("/api/update")
+def update_apply():
+    if not IS_GIT:
+        return jsonify(error="Not a git checkout"), 400
+    with _update_lock:
+        pull = git("pull", "--ff-only", timeout=180)
+        _update_cache["data"] = None
+    if pull.returncode != 0:
+        return jsonify(error="Update failed: " + (pull.stderr or pull.stdout).strip()[-400:]), 500
+    threading.Timer(1.0, restart_self).start()
+    return jsonify(ok=True, output=pull.stdout.strip()[-400:])
 
 
 def resume_unfinished():

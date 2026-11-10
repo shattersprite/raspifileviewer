@@ -183,9 +183,25 @@ function statusText(item) {
   return item.kind === 'video' ? 'Video' : 'Image';
 }
 
+function renderStream(v) {
+  const prev = $('#preview');
+  prev.innerHTML = `<div class="ph">🖥 Showing a computer screen<br>${esc(v.stream.source)}</div>`;
+  $('#nowName').textContent = 'Screen sharing';
+  $('#nowSub').textContent = 'From the PiScreen desktop app';
+  ['#pdfNav', '#videoNav', '#pagesCard', '#scrollUp', '#scrollDown', '#fitBtn', '[data-act=rotate]']
+    .forEach((s) => $(s).classList.add('hidden'));
+  $('#viewTools').classList.remove('hidden');
+  $('#viewTools [data-act=stop]').textContent = 'Stop sharing';
+  $('#blankBtn').classList.toggle('on', v.blank);
+}
+
 function render() {
   const v = S.view, item = S.items.find((i) => i.id === v.item);
   const isPdf = item && item.kind === 'pdf', isVideo = item && item.kind === 'video';
+  $('#viewTools [data-act=stop]').textContent = 'Stop';
+  $('#fitBtn').classList.remove('hidden');
+  $('[data-act=rotate]').classList.remove('hidden');
+  if (v.stream) { renderStream(v); renderLibrary(v); return; }
 
   // Preview
   const prev = $('#preview');
@@ -247,8 +263,10 @@ function render() {
       b.classList.toggle('cur', cur);
     });
   } else pagesKey = '';
+  renderLibrary(v);
+}
 
-  // Library
+function renderLibrary(v) {
   const lkey = JSON.stringify([S.items, v.item]);
   if (lkey !== libKey) {
     libKey = lkey;
@@ -338,7 +356,14 @@ function upload(files) {
 // Live updates
 function connect() {
   const es = new EventSource('/api/events');
-  es.addEventListener('state', (e) => { S = JSON.parse(e.data); render(); });
+  let commit = null;
+  es.addEventListener('state', (e) => {
+    S = JSON.parse(e.data);
+    const c = S.server && S.server.commit;
+    if (commit && c && c !== commit) { location.reload(); return; } // server was updated
+    commit = c || commit;
+    render();
+  });
   es.onopen = () => { $('#conn').classList.add('on'); $('#conn').textContent = 'Connected'; };
   es.onerror = () => { $('#conn').classList.remove('on'); $('#conn').textContent = 'Reconnecting…'; };
 }

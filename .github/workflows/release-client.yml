@@ -1,0 +1,43 @@
+# Builds the Windows installer and publishes it as a GitHub Release.
+# Installed apps find new releases here and prompt the user to update.
+#
+# To release: bump "version" in client/package.json (and VERSION), commit,
+# then push a matching tag:   git tag v1.2.0 && git push origin v1.2.0
+name: Release desktop app
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: client
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: client/package-lock.json
+
+      - name: Check the tag matches the app version
+        shell: bash
+        run: |
+          v=$(node -p "require('./package.json').version")
+          if [ "v$v" != "${GITHUB_REF_NAME}" ]; then
+            echo "Tag ${GITHUB_REF_NAME} does not match client/package.json version $v"; exit 1
+          fi
+
+      - run: npm ci
+
+      - name: Build and publish
+        run: npx electron-builder --win --publish always
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
