@@ -57,6 +57,26 @@ Windows can only extend onto a screen it thinks is plugged in, so the app needs 
 The picture is sent directly from your PC to the Pi over WebRTC, so it never leaves your network.
 On a Pi 4, use **Sharp text · 30 fps** or **Light**. A Pi 5 can usually handle **Smooth · 60 fps**.
 
+### Using a Raspberry Pi 3 (or Zero)
+PiScreen detects a Pi 3 or Zero and switches to **low-power mode** on its own:
+- Screen sharing is capped at **1280×720, 15 fps**, and the 60 fps option is turned off. For the extra-monitor setup, set the virtual display to **1280×720** so text stays sharp.
+- PDF pages render at 1920 px instead of 2400 px, which makes conversion faster.
+- The welcome screen skips its blur effect.
+
+Other tips for a Pi 3:
+- **Videos:** use 720p MP4 (H.264). 1080p videos will likely stutter.
+- **Big PDFs:** these take a while to convert. The first page shows as soon as it's ready.
+- **`--office` (LibreOffice):** it works, but it's slow with 1 GB of RAM. Exporting slides to PDF on your computer first is much faster.
+
+## Storage cleanup
+
+In **Admin → Storage** you can see how much space PiScreen's files take up, and set rules:
+- **Delete files that haven't been shown for** 1 day, 1 week, 30 days or 90 days.
+- **Always keep this much space free:** when the SD card gets fuller than this, the least recently shown files are deleted first.
+
+Cleanup runs every hour and after each upload. The file currently on screen, and files still converting, are never deleted.
+There are also **Clean up now** and **Delete all files** buttons.
+
 ### Updates
 - **App:** when a new release is published, the app asks whether to download it, then whether to restart and install it.
 - **Pi server:** the app asks the Pi to check GitHub for new commits. If there are any, it shows what changed and asks whether to update. The Pi then runs `git pull` and restarts itself, and the display reloads automatically.
@@ -89,7 +109,8 @@ Uploaded files are stored in `data/`, and they're kept across reboots. Delete th
 | Variable | Default | Meaning |
 |---|---|---|
 | `PISCREEN_PORT` | `8080` | Web port |
-| `PISCREEN_PAGE_PX` | `2400` | Resolution of the long side of a rendered PDF page. Lower it (for example 1600) for faster conversion on older Pis. |
+| `PISCREEN_PAGE_PX` | `2400` (`1920` on a Pi 3) | Resolution of the long side of a rendered PDF page. Lower it (for example 1600) for faster conversion. |
+| `PISCREEN_LOW_POWER` | automatic | `1` forces low-power mode on, `0` forces it off. |
 | `PISCREEN_DATA` | `./data` | Where uploads are stored |
 
 ## Admin and locking the screen

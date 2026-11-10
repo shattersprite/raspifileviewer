@@ -204,13 +204,18 @@ const thumbOf = (item, n = 1) => item.kind === 'pdf'
   ? (item.ready_pages >= n ? `/media/${item.id}/thumb-${pad(n)}.jpg` : null)
   : item.kind === 'image' ? `/media/${item.id}/source${item.ext}` : null;
 
+function fmtSize(n) {
+  if (!n) return '';
+  return n >= 1024 ** 3 ? ` · ${(n / 1024 ** 3).toFixed(1)} GB` : ` · ${Math.max(1, Math.round(n / 1024 ** 2))} MB`;
+}
+
 function statusText(item) {
   if (item.status === 'error') return 'Error: ' + (item.error || 'conversion failed');
   if (item.kind === 'pdf') {
     if (item.status === 'processing') return item.ready_pages ? `Preparing… ${item.ready_pages}/${item.pages} pages` : 'Preparing…';
-    return `${item.pages} page${item.pages === 1 ? '' : 's'}`;
+    return `${item.pages} page${item.pages === 1 ? '' : 's'}${fmtSize(item.size)}`;
   }
-  return item.kind === 'video' ? 'Video' : 'Image';
+  return (item.kind === 'video' ? 'Video' : 'Image') + fmtSize(item.size);
 }
 
 function renderStream(v) {

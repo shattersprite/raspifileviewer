@@ -146,8 +146,19 @@ input:focus, select:focus { outline: 2px solid var(--accent); outline-offset: -1
 .option:has(input:checked) { border-color: var(--accent); background: var(--accent-soft); }
 .option input { accent-color: var(--accent); width: 18px; height: 18px; }
 .opt-icon { font-size: 22px; width: 30px; text-align: center; }
-#lockMsg.ok, #codeMsg.ok { color: var(--ok); }
-#lockMsg.bad, #codeMsg.bad { color: var(--danger); }
+#lockMsg.ok, #codeMsg.ok, #storageMsg.ok { color: var(--ok); }
+#lockMsg.bad, #codeMsg.bad, #storageMsg.bad { color: var(--danger); }
+.meter { display: flex; height: 12px; border-radius: 6px; overflow: hidden; background: color-mix(in srgb, var(--ok) 25%, var(--btn)); margin: 10px 0 6px; }
+.meter span { display: block; height: 100%; }
+#meterUploads { background: var(--accent); }
+#meterOther { background: #9aa6ba; }
+.meter-legend { display: flex; gap: 16px; flex-wrap: wrap; }
+.sw { display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 6px; }
+.sw.uploads { background: var(--accent); } .sw.other { background: #9aa6ba; } .sw.free { background: color-mix(in srgb, var(--ok) 25%, var(--btn)); }
+.form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.btn-row { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+.danger-text { color: var(--danger); }
+.notice { background: color-mix(in srgb, var(--orange) 14%, transparent); color: var(--fg); border-radius: 8px; padding: 8px 10px; margin-top: 10px; font-size: 12px; }
 
 /* ---------- bottom share bar ---------- */
 .sharebar { display: flex; align-items: center; gap: 12px; padding: 12px 22px; background: #10233f; color: #fff; }

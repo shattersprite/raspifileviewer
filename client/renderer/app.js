@@ -12,6 +12,25 @@ const PRESETS = {
 };
 const isWindows = navigator.userAgent.includes('Windows');
 
+// A Pi 3 (or Zero) can only decode about 720p at 15 fps smoothly.
+const LOW_POWER_MAX = { width: 1280, height: 720, fps: 15, bitrate: 3_000_000 };
+const lowPower = () => !!(state && state.server && state.server.low_power);
+
+// The resolution to send: the Pi's screen size, capped on a low-power Pi.
+function targetSize() {
+  const d = state && state.display && state.display.width > 0 ? state.display : null;
+  if (!lowPower()) return d ? { width: d.width, height: d.height } : null;
+  if (!d) return { width: LOW_POWER_MAX.width, height: LOW_POWER_MAX.height };
+  const scale = Math.min(1, LOW_POWER_MAX.width / d.width, LOW_POWER_MAX.height / d.height);
+  return { width: Math.round(d.width * scale), height: Math.round(d.height * scale) };
+}
+
+function fmtBytes(n) {
+  if (!n) return '0 MB';
+  const gb = n / 1024 ** 3;
+  return gb >= 1 ? `${gb.toFixed(gb >= 10 ? 0 : 1)} GB` : `${Math.max(1, Math.round(n / 1024 ** 2))} MB`;
+}
+
 let server = null;      // "http://192.168.1.50:8080"
 let access = null;      // result of /api/auth
 let events = null;      // EventSource to the Pi
@@ -249,7 +268,7 @@ async function loadSources() {
 }
 
 function renderSources() {
-  const pi = state && state.display;
+  const pi = targetSize();
   const card = (s) => {
     const match = pi && s.detail.startsWith(`${pi.width}×${pi.height}`);
     return `<button class="source ${s.id === selectedId ? 'selected' : ''}" data-id="${esc(s.id)}" ${share ? 'disabled' : ''}>
@@ -272,9 +291,16 @@ document.addEventListener('click', (e) => {
 $('#refreshSources').addEventListener('click', loadSources);
 
 function renderShareInfo() {
-  const d = state && state.display;
-  $('#piInfo').textContent = d ? `Pi screen: ${d.width}×${d.height}` : 'Pi screen: waiting for the display…';
-  $('#piRes').textContent = d ? `${d.width}×${d.height}` : "the Pi's resolution";
+  const d = state && state.display && state.display.width > 0 ? state.display : null;
+  const t = targetSize();
+  const lp = lowPower();
+  $('#piInfo').textContent = (d ? `Pi screen: ${d.width}×${d.height}` : 'Pi screen: waiting for the display…')
+    + (state && state.server && state.server.model ? ` · ${state.server.model.replace(/ Rev [\d.]+$/, '')}` : '');
+  $('#piRes').textContent = t ? `${t.width}×${t.height}` : "the Pi's resolution";
+  $('#lowPowerNote').classList.toggle('hidden', !lp);
+  const smooth = $('#quality option[value=smooth]');
+  smooth.disabled = lp;
+  if (lp && $('#quality').value === 'smooth') $('#quality').value = 'sharp';
   if (sources.length && currentView === 'share') renderSources();
 }
 
@@ -309,13 +335,17 @@ function shareStatus(text, live) {
 async function startShare() {
   const src = sources.find((s) => s.id === selectedId);
   if (!src || !server) return;
-  const preset = PRESETS[$('#quality').value];
+  let preset = PRESETS[$('#quality').value];
+  if (lowPower()) {
+    preset = { ...preset, fps: Math.min(preset.fps, LOW_POWER_MAX.fps),
+      bitrate: Math.min(preset.bitrate, LOW_POWER_MAX.bitrate) };
+  }
   const wantAudio = isWindows && $('#audio').checked && src.type === 'screen';
   await P.chooseSource(src.id, wantAudio);
 
   const video = { frameRate: { ideal: preset.fps, max: preset.fps } };
-  const d = state && state.display;
-  if (d) { video.width = { max: d.width }; video.height = { max: d.height }; }
+  const t = targetSize();
+  if (t) { video.width = { max: t.width }; video.height = { max: t.height }; }
 
   let stream;
   try {
@@ -492,8 +522,56 @@ function showAdminPanel(s) {
     ? `Currently locked to ${s.device_name}. Choosing this moves the lock to ${computerName}.`
     : `Only ${computerName} can share or control.`;
   $('#passcodeRow').classList.toggle('hidden', s.lock !== 'passcode');
-  $('#softwareInfo').textContent = `App ${$('#appVersion').textContent} · Pi server ${state?.server?.version || ''} (${state?.server?.commit || 'unknown'})`;
+  $('#softwareInfo').textContent = `App ${$('#appVersion').textContent} · Pi server ${state?.server?.version || ''}`
+    + ` (${state?.server?.commit || 'unknown'}) · ${state?.server?.model || 'Unknown device'}`
+    + (lowPower() ? ' · low-power mode' : '');
+  loadStorage();
 }
+
+// ------------------------------------------------------------------ admin: storage
+
+function renderStorage(s) {
+  const other = Math.max(0, s.disk_total - s.disk_free - s.uploads);
+  $('#storageText').textContent = `${s.count} file${s.count === 1 ? '' : 's'} using ${fmtBytes(s.uploads)} · `
+    + `${fmtBytes(s.disk_free)} free of ${fmtBytes(s.disk_total)}`;
+  $('#meterUploads').style.width = (100 * s.uploads / s.disk_total) + '%';
+  $('#meterOther').style.width = (100 * other / s.disk_total) + '%';
+  $('#cleanDays').value = String(s.cleanup.days);
+  $('#cleanFree').value = String(s.cleanup.min_free_gb);
+  if (![...$('#cleanDays').options].some((o) => o.selected)) $('#cleanDays').value = '0';
+  if (![...$('#cleanFree').options].some((o) => o.selected)) $('#cleanFree').value = '0';
+}
+
+async function loadStorage() {
+  const r = await fetch(server + '/api/admin/storage').catch(() => null);
+  if (r && r.ok) renderStorage(await r.json());
+}
+
+$('#saveCleanup').addEventListener('click', async () => {
+  const r = await post('/api/admin/storage', { days: Number($('#cleanDays').value), min_free_gb: Number($('#cleanFree').value) });
+  if (!r.ok) { setMsg($('#storageMsg'), r.data.error, 'bad'); return; }
+  renderStorage(r.data);
+  const off = !r.data.cleanup.days && !r.data.cleanup.min_free_gb;
+  setMsg($('#storageMsg'), off ? 'Automatic cleanup is off.' : 'Saved. Cleanup runs every hour and after each upload.', 'ok');
+});
+
+$('#cleanNow').addEventListener('click', async () => {
+  const r = await post('/api/admin/storage/clean');
+  if (!r.ok) { setMsg($('#storageMsg'), r.data.error, 'bad'); return; }
+  renderStorage(r.data);
+  const off = !r.data.cleanup.days && !r.data.cleanup.min_free_gb;
+  setMsg($('#storageMsg'), off ? 'Choose a cleanup rule first, or use "Delete all files".'
+    : r.data.deleted ? `Deleted ${r.data.deleted} file${r.data.deleted === 1 ? '' : 's'} (${fmtBytes(r.data.freed)}).`
+    : 'Nothing needed deleting.', off ? 'bad' : 'ok');
+});
+
+$('#clearAll').addEventListener('click', async () => {
+  if (!confirm('Delete every file on the Pi? This also clears the screen and cannot be undone.')) return;
+  const r = await post('/api/admin/storage/clear');
+  if (!r.ok) { setMsg($('#storageMsg'), r.data.error, 'bad'); return; }
+  renderStorage(r.data);
+  setMsg($('#storageMsg'), 'All files deleted.', 'ok');
+});
 
 // Keypad
 $('#keypad').addEventListener('click', (e) => {

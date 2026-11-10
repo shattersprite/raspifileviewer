@@ -48,6 +48,8 @@
   .w-steps b { color: #fff; }
   #ipUrl { color: #8fc1ff; font-weight: 650; font-variant-numeric: tabular-nums; }
   #qr { width: 24vh; height: 24vh; background: #fff; border-radius: 2vh; padding: 1.2vh; flex: none; }
+  /* Blur is expensive on a Pi 3's GPU */
+  .lowpower .w-card { backdrop-filter: none; background: rgba(255,255,255,.1); }
   .w-bottom { display: flex; justify-content: space-between; align-items: center; font-size: 2.3vh; color: #a9bddb; }
   #lockNote { display: flex; align-items: center; gap: 1.2vh; background: rgba(0,0,0,.25); padding: 1.2vh 2.2vh; border-radius: 99px; }
   #lockNote.locked { color: #ffd2b0; }
@@ -224,6 +226,7 @@ async function onOffer(sig) {
 
 function renderWelcome() {
   const sc = S.screen || { name: 'PiScreen', lock: 'off' };
+  document.body.classList.toggle('lowpower', !!(S.server && S.server.low_power));
   $('#screenName').textContent = sc.name;
   $('#stepName').textContent = sc.name;
   document.title = sc.name;

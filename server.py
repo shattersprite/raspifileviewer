@@ -32,7 +32,23 @@ MEDIA_DIR = DATA_DIR / "media"
 STATE_FILE = DATA_DIR / "state.json"
 HOST = os.environ.get("PISCREEN_HOST", "0.0.0.0")
 PORT = int(os.environ.get("PISCREEN_PORT", "8080"))
-PAGE_PX = int(os.environ.get("PISCREEN_PAGE_PX", "2400"))  # long side of rendered PDF pages
+
+
+def read_model():
+    try:
+        return Path("/proc/device-tree/model").read_text("utf-8", "ignore").strip("\x00 \n")
+    except OSError:
+        return ""
+
+
+# Pi 3, Zero and older are much slower: render smaller pages and share at lower quality.
+MODEL = read_model()
+_gen = re.search(r"Raspberry Pi (\d)", MODEL)
+LOW_POWER = bool(MODEL) and ("Zero" in MODEL or (_gen is not None and int(_gen.group(1)) <= 3))
+if os.environ.get("PISCREEN_LOW_POWER") in ("0", "1"):  # force it on or off
+    LOW_POWER = os.environ["PISCREEN_LOW_POWER"] == "1"
+# Long side of rendered PDF pages, in pixels.
+PAGE_PX = int(os.environ.get("PISCREEN_PAGE_PX", "1920" if LOW_POWER else "2400"))
 THUMB_PX = 360
 
 KINDS = {
@@ -82,7 +98,8 @@ def current_commit():
     return r.stdout.strip() if r.returncode == 0 else ""
 
 
-SERVER_INFO = {"app": "piscreen", "version": read_version(), "commit": current_commit()}
+SERVER_INFO = {"app": "piscreen", "version": read_version(), "commit": current_commit(),
+               "model": MODEL or "Unknown device", "low_power": LOW_POWER}
 
 AUTH = Auth(DATA_DIR / "settings.json")
 
@@ -204,7 +221,8 @@ def process_document(item_id: str, src: Path):
             render_page(pdf, n, folder / f"page-{n:04d}", PAGE_PX)
             render_page(pdf, n, folder / f"thumb-{n:04d}", THUMB_PX)
             update_item(item_id, ready_pages=n)
-        update_item(item_id, status="ready")
+        update_item(item_id, status="ready", size=folder_size(folder))
+        cleanup_soon()
     except Exception as exc:
         print(f"Processing {item_id} failed: {exc}")
         update_item(item_id, status="error", error=str(exc))
@@ -457,7 +475,8 @@ def upload():
         item = {"id": item_id, "name": name, "kind": "pdf" if is_doc else kind, "ext": ext,
                 "status": "processing" if is_doc else "ready",
                 "pages": 1, "ready_pages": 0 if is_doc else 1,
-                "error": None, "created": time.time()}
+                "error": None, "created": time.time(), "last_used": time.time(),
+                "size": src.stat().st_size}
         with _lock:
             _state["items"].insert(0, item)
         if is_doc:
@@ -469,7 +488,16 @@ def upload():
             _state["view"].update(item=created[0]["id"], page=1, blank=False,
                                   playing=True, rotation=0)
         commit()
+    cleanup_soon()
     return jsonify(created=created, rejected=rejected)
+
+
+def remove_item(item):
+    """Delete an item and its files (caller holds the lock and commits)."""
+    _state["items"].remove(item)
+    if _state["view"]["item"] == item["id"]:
+        _state["view"].update(item=None, page=1)
+    shutil.rmtree(MEDIA_DIR / item["id"], ignore_errors=True)
 
 
 @app.delete("/api/items/<item_id>")
@@ -478,12 +506,114 @@ def delete_item(item_id):
         item = find_item(item_id)
         if not item:
             abort(404)
-        _state["items"].remove(item)
-        if _state["view"]["item"] == item_id:
-            _state["view"].update(item=None, page=1)
+        remove_item(item)
         commit()
-    shutil.rmtree(MEDIA_DIR / item_id, ignore_errors=True)
     return jsonify(ok=True)
+
+
+# ------------------------------------------------------------------- storage cleanup
+
+_cleanup_info = {"time": None, "deleted": 0, "freed": 0}
+
+
+def folder_size(path: Path) -> int:
+    return sum(f.stat().st_size for f in path.rglob("*") if f.is_file())
+
+
+def disk_free() -> int:
+    return shutil.disk_usage(DATA_DIR).free
+
+
+def run_cleanup():
+    """Delete old files according to the admin's cleanup settings.
+
+    Never deletes what's on screen right now or a file that's still converting.
+    Least recently shown files go first.
+    """
+    cfg = AUTH.cleanup_settings()
+    days, min_free = cfg["days"], cfg["min_free_gb"] * 1024 ** 3
+    if not days and not min_free:
+        return 0, 0
+    deleted, freed = 0, 0
+    with _lock:
+        current = _state["view"]["item"]
+        candidates = sorted(
+            (i for i in _state["items"] if i["id"] != current and i["status"] != "processing"),
+            key=lambda i: i.get("last_used", i["created"]))
+        now = time.time()
+
+        def drop(item):
+            nonlocal deleted, freed
+            freed += item.get("size") or folder_size(MEDIA_DIR / item["id"])
+            remove_item(item)
+            candidates.remove(item)
+            deleted += 1
+
+        if days:
+            for item in list(candidates):
+                if now - item.get("last_used", item["created"]) > days * 86400:
+                    drop(item)
+        if min_free:
+            while candidates and disk_free() < min_free:
+                drop(candidates[0])
+        if deleted:
+            commit()
+            print(f"Cleanup: deleted {deleted} file(s), freed {freed / 1024 ** 2:.0f} MB")
+    _cleanup_info.update(time=time.time(), deleted=deleted, freed=freed)
+    return deleted, freed
+
+
+def cleanup_soon():
+    threading.Thread(target=run_cleanup, daemon=True).start()
+
+
+def cleanup_loop():
+    while True:
+        time.sleep(3600)
+        try:
+            run_cleanup()
+        except Exception as exc:  # never let the background thread die
+            print(f"Cleanup failed: {exc}")
+
+
+def storage_info():
+    usage = shutil.disk_usage(DATA_DIR)
+    with _lock:
+        items = list(_state["items"])
+    used = folder_size(MEDIA_DIR) if MEDIA_DIR.exists() else 0
+    return {"disk_total": usage.total, "disk_free": usage.free, "uploads": used,
+            "count": len(items), "cleanup": AUTH.cleanup_settings(), "last": _cleanup_info}
+
+
+@app.get("/api/admin/storage")
+def admin_storage():
+    return jsonify(storage_info())
+
+
+@app.post("/api/admin/storage")
+def admin_storage_set():
+    data = body()
+    err = AUTH.set_cleanup(data.get("days"), data.get("min_free_gb"))
+    if err:
+        return jsonify(error=err), 400
+    run_cleanup()
+    return jsonify(storage_info())
+
+
+@app.post("/api/admin/storage/clean")
+def admin_clean_now():
+    deleted, freed = run_cleanup()
+    return jsonify({**storage_info(), "deleted": deleted, "freed": freed})
+
+
+@app.post("/api/admin/storage/clear")
+def admin_clear_all():
+    """Delete every uploaded file (except ones still converting)."""
+    with _lock:
+        for item in [i for i in _state["items"] if i["status"] != "processing"]:
+            remove_item(item)
+        commit()
+    return jsonify(storage_info())
 
 
 @app.post("/api/control")
@@ -509,6 +639,7 @@ def control():
             if not target:
                 return jsonify(error="Unknown item"), 404
             end_stream()
+            target["last_used"] = time.time()
             v.update(item=target["id"], page=1, blank=False, playing=True, rotation=0)
             pages = target["pages"] if target["kind"] == "pdf" else 1
             go(data.get("page", 1))
@@ -591,6 +722,8 @@ def display_info():
         info = {"width": int(data["width"]), "height": int(data["height"])}
     except (KeyError, TypeError, ValueError):
         return jsonify(error="Bad size"), 400
+    if not (200 <= info["width"] <= 10000 and 200 <= info["height"] <= 10000):
+        return jsonify(error="Bad size"), 400  # e.g. 0×0 from a hidden window
     with _lock:
         if _state["display"] != info:
             _state["display"] = info
@@ -659,7 +792,10 @@ if __name__ == "__main__":
     MEDIA_DIR.mkdir(parents=True, exist_ok=True)
     load_state()
     resume_unfinished()
+    threading.Thread(target=cleanup_loop, daemon=True).start()
+    cleanup_soon()
     urls = control_urls()
-    print(f"PiScreen running.\n  Control: {urls['ip_url']}  (or {urls['host_url']})\n"
+    print(f"PiScreen running on {SERVER_INFO['model']}{' (low-power mode)' if LOW_POWER else ''}.\n"
+          f"  Control: {urls['ip_url']}  (or {urls['host_url']})\n"
           f"  Display: http://localhost:{PORT}/display")
     app.run(host=HOST, port=PORT, threaded=True)

@@ -168,6 +168,25 @@ class Auth:
             self._save()
             return None
 
+    def cleanup_settings(self) -> dict:
+        c = self.s.get("cleanup", {})
+        return {"days": int(c.get("days", 0)), "min_free_gb": float(c.get("min_free_gb", 0))}
+
+    def set_cleanup(self, days, min_free_gb):
+        """days: delete files not shown for this many days (0 = never).
+        min_free_gb: delete oldest files while free space is below this (0 = off)."""
+        try:
+            days = int(days or 0)
+            min_free_gb = float(min_free_gb or 0)
+        except (TypeError, ValueError):
+            return "Bad cleanup settings."
+        if not 0 <= days <= 3650 or not 0 <= min_free_gb <= 1000:
+            return "Bad cleanup settings."
+        with self._lock:
+            self.s["cleanup"] = {"days": days, "min_free_gb": min_free_gb}
+            self._save()
+        return None
+
     def set_admin_code(self, code: str):
         code = str(code or "")
         if len(code) < 4:
