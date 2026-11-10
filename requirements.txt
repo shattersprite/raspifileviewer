@@ -1,0 +1,5 @@
+# On the Pi, install.sh uses the apt packages instead (python3-flask, python3-qrcode).
+# For running on another machine: pip install -r requirements.txt
+# PDF support also needs poppler (pdftoppm/pdfinfo) on the PATH.
+flask>=2.2
+qrcode>=7

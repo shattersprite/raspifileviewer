@@ -1,0 +1,348 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0f1115">
+<title>PiScreen Remote</title>
+<style>
+  :root {
+    --bg: #f4f5f7; --card: #ffffff; --fg: #15171c; --muted: #6b7080; --line: #e3e5ea;
+    --accent: #2f6fed; --accent-fg: #fff; --danger: #d43b3b; --btn: #eef0f4; --ok: #22a35a;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #0f1115; --card: #181b22; --fg: #eceef2; --muted: #8d93a3; --line: #262a33;
+      --accent: #5b8fff; --btn: #232731; --danger: #ff6b6b; --ok: #3ccf7c; }
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  body { margin: 0; background: var(--bg); color: var(--fg);
+    font: 15px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  main { max-width: 760px; margin: 0 auto; padding: 12px 16px 48px; }
+  header { display: flex; align-items: center; gap: 10px; padding: 6px 0 12px; }
+  header h1 { font-size: 20px; margin: 0; font-weight: 700; letter-spacing: -0.01em; flex: 1; }
+  .conn { font-size: 12px; color: var(--muted); display: flex; align-items: center; gap: 6px; }
+  .conn::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--danger); }
+  .conn.on::before { background: var(--ok); }
+
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 14px; margin-bottom: 14px; }
+  .card h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 0 0 10px; font-weight: 600; }
+
+  button { font: inherit; color: var(--fg); background: var(--btn); border: 0; border-radius: 10px;
+    padding: 10px 12px; cursor: pointer; min-height: 44px; touch-action: manipulation; }
+  button:active { transform: scale(.97); }
+  button.primary { background: var(--accent); color: var(--accent-fg); }
+  button.on { background: var(--accent); color: var(--accent-fg); }
+  button.danger { color: var(--danger); }
+  button:disabled { opacity: .4; }
+
+  /* Now showing */
+  #preview { position: relative; aspect-ratio: 16 / 9; background: #000; border-radius: 10px; overflow: hidden;
+    display: flex; align-items: center; justify-content: center; touch-action: pan-y; user-select: none; }
+  #preview img { max-width: 100%; max-height: 100%; object-fit: contain; transition: transform .2s; }
+  #preview .ph { color: #9aa0ad; font-size: 14px; text-align: center; padding: 20px; }
+  #preview .badge { position: absolute; top: 8px; left: 8px; background: rgba(0,0,0,.65); color: #fff;
+    font-size: 12px; padding: 3px 8px; border-radius: 6px; }
+  #nowName { font-weight: 600; margin: 10px 0 2px; overflow-wrap: anywhere; }
+  #nowSub { color: var(--muted); font-size: 13px; }
+
+  .nav { display: grid; grid-template-columns: 1fr auto 1fr; gap: 8px; margin-top: 12px; align-items: center; }
+  .nav .big { min-height: 64px; font-size: 22px; font-weight: 600; }
+  .goto { display: flex; gap: 6px; align-items: center; }
+  .goto input { width: 64px; min-height: 44px; border-radius: 10px; border: 1px solid var(--line);
+    background: var(--bg); color: var(--fg); font: inherit; text-align: center; font-variant-numeric: tabular-nums; }
+  .tools { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+  .tools button { flex: 1 1 auto; }
+
+  #pages { display: grid; grid-template-columns: repeat(auto-fill, minmax(84px, 1fr)); gap: 8px;
+    max-height: 340px; overflow-y: auto; padding: 2px; }
+  #pages button { padding: 0; min-height: 0; background: #000; border-radius: 8px; overflow: hidden;
+    position: relative; aspect-ratio: 3 / 4; outline: 2px solid transparent; outline-offset: 1px; }
+  #pages button.cur { outline-color: var(--accent); }
+  #pages img { width: 100%; height: 100%; object-fit: contain; display: block; }
+  #pages span { position: absolute; bottom: 3px; right: 4px; font-size: 11px; color: #fff;
+    background: rgba(0,0,0,.6); border-radius: 4px; padding: 0 5px; }
+
+  /* Upload */
+  #drop { border: 2px dashed var(--line); border-radius: 12px; padding: 22px 14px; text-align: center;
+    cursor: pointer; transition: border-color .15s, background .15s; }
+  #drop.over { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 8%, transparent); }
+  #drop strong { display: block; font-size: 16px; margin-bottom: 4px; }
+  #drop small { color: var(--muted); }
+  .row { display: flex; align-items: center; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+  .row label { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 14px; }
+  #progress { height: 6px; background: var(--btn); border-radius: 3px; overflow: hidden; margin-top: 10px; display: none; }
+  #progress div { height: 100%; width: 0; background: var(--accent); transition: width .15s; }
+  #uploadMsg { font-size: 13px; color: var(--muted); margin-top: 6px; min-height: 1em; }
+
+  /* Library */
+  #library { list-style: none; margin: 0; padding: 0; }
+  #library li { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-top: 1px solid var(--line); }
+  #library li:first-child { border-top: 0; }
+  #library .thumb { width: 56px; height: 42px; flex: none; border-radius: 6px; background: #000; overflow: hidden;
+    display: flex; align-items: center; justify-content: center; color: #9aa0ad; font-size: 11px; font-weight: 600; }
+  #library .thumb img { width: 100%; height: 100%; object-fit: cover; }
+  #library .meta { flex: 1; min-width: 0; }
+  #library .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; }
+  #library .sub { font-size: 12px; color: var(--muted); }
+  #library .sub.err { color: var(--danger); }
+  #library li.cur .name { color: var(--accent); }
+  #library button { min-height: 38px; padding: 6px 12px; }
+  .empty { color: var(--muted); font-size: 14px; text-align: center; padding: 10px 0; }
+  .hidden { display: none !important; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>PiScreen</h1>
+    <span class="conn" id="conn">Connecting…</span>
+  </header>
+
+  <section class="card">
+    <h2>On screen</h2>
+    <div id="preview"><div class="ph">Nothing is showing.<br>Upload a file or pick one from the library.</div></div>
+    <div id="nowName"></div>
+    <div id="nowSub"></div>
+
+    <div id="pdfNav" class="nav hidden">
+      <button class="big" data-act="prev" aria-label="Previous page">‹ Prev</button>
+      <div class="goto">
+        <input id="pageInput" type="number" inputmode="numeric" min="1" aria-label="Page number">
+        <button id="gotoBtn">Go</button>
+      </div>
+      <button class="big primary" data-act="next" aria-label="Next page">Next ›</button>
+    </div>
+
+    <div id="videoNav" class="tools hidden">
+      <button data-act="seek" data-delta="-10">⏪ 10s</button>
+      <button id="playBtn" class="primary" data-act="play">Pause</button>
+      <button data-act="seek" data-delta="10">10s ⏩</button>
+      <button data-act="restart">⏮ Restart</button>
+      <button id="muteBtn" data-act="mute">Mute</button>
+      <button id="loopBtn" data-act="loop">Loop</button>
+    </div>
+
+    <div id="viewTools" class="tools hidden">
+      <button id="fitBtn" data-act="fit">Fit: whole</button>
+      <button data-act="rotate">⟳ Rotate</button>
+      <button id="scrollUp" data-act="scroll" data-delta="-0.5" class="hidden">▲ Up</button>
+      <button id="scrollDown" data-act="scroll" data-delta="0.5" class="hidden">▼ Down</button>
+      <button id="blankBtn" data-act="blank">Blank screen</button>
+      <button class="danger" data-act="stop">Stop</button>
+    </div>
+  </section>
+
+  <section id="pagesCard" class="card hidden">
+    <h2>Pages</h2>
+    <div id="pages"></div>
+  </section>
+
+  <section class="card">
+    <h2>Upload</h2>
+    <div id="drop" role="button" tabindex="0">
+      <strong>Tap to choose files</strong>
+      <small>or drop them here · PDF, images, video, PowerPoint/Word</small>
+    </div>
+    <input id="fileInput" type="file" multiple class="hidden"
+      accept=".pdf,image/*,video/*,.ppt,.pptx,.pps,.ppsx,.odp,.doc,.docx,.odt,.rtf,.xls,.xlsx,.ods">
+    <div class="row"><label><input type="checkbox" id="showNow" checked> Show on screen right away</label></div>
+    <div id="progress"><div></div></div>
+    <div id="uploadMsg"></div>
+  </section>
+
+  <section class="card">
+    <h2>Library</h2>
+    <ul id="library"></ul>
+  </section>
+</main>
+
+<script>
+const $ = (s) => document.querySelector(s);
+const pad = (n) => String(n).padStart(4, '0');
+const esc = (s) => s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const FIT_LABEL = { contain: 'Fit: whole', width: 'Fit: width', cover: 'Fit: fill' };
+let S = { items: [], view: {} };
+let pagesKey = '', libKey = '';
+
+async function api(action, extra = {}) {
+  const r = await fetch('/api/control', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action, ...extra }) });
+  if (!r.ok) { const e = await r.json().catch(() => ({})); alert(e.error || 'Request failed'); }
+}
+
+const thumbOf = (item, n = 1) => item.kind === 'pdf'
+  ? (item.ready_pages >= n ? `/media/${item.id}/thumb-${pad(n)}.jpg` : null)
+  : item.kind === 'image' ? `/media/${item.id}/source${item.ext}` : null;
+
+function statusText(item) {
+  if (item.status === 'error') return 'Error: ' + (item.error || 'conversion failed');
+  if (item.kind === 'pdf') {
+    if (item.status === 'processing') return item.ready_pages ? `Preparing… ${item.ready_pages}/${item.pages} pages` : 'Preparing…';
+    return `${item.pages} page${item.pages === 1 ? '' : 's'}`;
+  }
+  return item.kind === 'video' ? 'Video' : 'Image';
+}
+
+function render() {
+  const v = S.view, item = S.items.find((i) => i.id === v.item);
+  const isPdf = item && item.kind === 'pdf', isVideo = item && item.kind === 'video';
+
+  // Preview
+  const prev = $('#preview');
+  let src = null;
+  if (isPdf && v.page <= item.ready_pages) src = `/media/${item.id}/page-${pad(v.page)}.jpg`;
+  else if (item && item.kind === 'image') src = `/media/${item.id}/source${item.ext}`;
+  const badge = v.blank ? '<span class="badge">Screen blanked</span>' : '';
+  if (!item) prev.innerHTML = '<div class="ph">Nothing is showing.<br>Upload a file or pick one from the library.</div>';
+  else if (src) {
+    const img = prev.querySelector('img');
+    if (!img || img.getAttribute('src') !== src) prev.innerHTML = `<img src="${src}" alt="">`;
+  } else prev.innerHTML = `<div class="ph">${isVideo ? '▶ Playing video' : 'Preparing page ' + v.page + '…'}</div>`;
+  prev.querySelector('.badge')?.remove();
+  if (badge) prev.insertAdjacentHTML('beforeend', badge);
+  const pimg = prev.querySelector('img');
+  if (pimg) pimg.style.transform = `rotate(${v.rotation}deg)`;
+
+  $('#nowName').textContent = item ? item.name : '';
+  $('#nowSub').textContent = !item ? '' : isPdf
+    ? `Page ${v.page} of ${item.pages}` + (item.status === 'processing' ? ` · preparing ${item.ready_pages}/${item.pages}` : '')
+    : statusText(item);
+
+  $('#pdfNav').classList.toggle('hidden', !isPdf);
+  $('#videoNav').classList.toggle('hidden', !isVideo);
+  $('#viewTools').classList.toggle('hidden', !item);
+  if (isPdf) {
+    const input = $('#pageInput');
+    input.max = item.pages;
+    if (document.activeElement !== input) input.value = v.page;
+    $('#pdfNav [data-act=prev]').disabled = v.page <= 1;
+    $('#pdfNav [data-act=next]').disabled = v.page >= item.pages;
+  }
+  $('#playBtn').textContent = v.playing ? '❚❚ Pause' : '▶ Play';
+  $('#muteBtn').classList.toggle('on', v.muted);
+  $('#muteBtn').textContent = v.muted ? 'Muted' : 'Mute';
+  $('#loopBtn').classList.toggle('on', v.loop);
+  $('#fitBtn').textContent = FIT_LABEL[v.fit] || 'Fit';
+  $('#blankBtn').classList.toggle('on', v.blank);
+  const canScroll = item && item.kind !== 'video' && v.fit === 'width' && v.rotation % 180 === 0;
+  $('#scrollUp').classList.toggle('hidden', !canScroll);
+  $('#scrollDown').classList.toggle('hidden', !canScroll);
+
+  // Page thumbnails
+  $('#pagesCard').classList.toggle('hidden', !(isPdf && item.pages > 1));
+  if (isPdf) {
+    const key = item.id + ':' + item.ready_pages + ':' + item.pages;
+    if (key !== pagesKey) {
+      pagesKey = key;
+      let html = '';
+      for (let n = 1; n <= item.pages; n++) {
+        const t = n <= item.ready_pages ? `<img loading="lazy" src="/media/${item.id}/thumb-${pad(n)}.jpg" alt="">` : '';
+        html += `<button data-page="${n}">${t}<span>${n}</span></button>`;
+      }
+      $('#pages').innerHTML = html;
+    }
+    $('#pages').querySelectorAll('button').forEach((b) => {
+      const cur = Number(b.dataset.page) === v.page;
+      if (cur && !b.classList.contains('cur')) b.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+      b.classList.toggle('cur', cur);
+    });
+  } else pagesKey = '';
+
+  // Library
+  const lkey = JSON.stringify([S.items, v.item]);
+  if (lkey !== libKey) {
+    libKey = lkey;
+    $('#library').innerHTML = S.items.length ? S.items.map((it) => {
+      const t = thumbOf(it);
+      const label = it.kind === 'video' ? '▶' : (it.ext || '').slice(1).toUpperCase();
+      return `<li class="${it.id === v.item ? 'cur' : ''}">
+        <div class="thumb">${t ? `<img loading="lazy" src="${t}" alt="">` : label}</div>
+        <div class="meta"><div class="name">${esc(it.name)}</div>
+          <div class="sub ${it.status === 'error' ? 'err' : ''}">${esc(statusText(it))}</div></div>
+        <button class="primary" data-show="${it.id}">Show</button>
+        <button class="danger" data-del="${it.id}" aria-label="Delete">✕</button>
+      </li>`;
+    }).join('') : '<li class="empty">No files yet.</li>';
+  }
+}
+
+// Buttons
+document.addEventListener('click', (e) => {
+  const b = e.target.closest('button');
+  if (!b) return;
+  if (b.dataset.act) {
+    const extra = b.dataset.delta ? { delta: Number(b.dataset.delta) } : {};
+    api(b.dataset.act, extra);
+  } else if (b.dataset.page) api('goto', { page: Number(b.dataset.page) });
+  else if (b.dataset.show) api('show', { item: b.dataset.show });
+  else if (b.dataset.del) {
+    const it = S.items.find((i) => i.id === b.dataset.del);
+    if (it && confirm(`Delete "${it.name}"?`)) fetch('/api/items/' + it.id, { method: 'DELETE' });
+  }
+});
+$('#gotoBtn').onclick = () => api('goto', { page: Number($('#pageInput').value) });
+$('#pageInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') { $('#gotoBtn').click(); e.target.blur(); } });
+
+// Swipe on the preview to change pages
+let touchX = null;
+$('#preview').addEventListener('touchstart', (e) => { touchX = e.touches[0].clientX; }, { passive: true });
+$('#preview').addEventListener('touchend', (e) => {
+  if (touchX === null) return;
+  const dx = e.changedTouches[0].clientX - touchX; touchX = null;
+  if (Math.abs(dx) > 50) api(dx < 0 ? 'next' : 'prev');
+});
+document.addEventListener('keydown', (e) => {
+  if (e.target.tagName === 'INPUT') return;
+  if (e.key === 'ArrowRight') api('next');
+  else if (e.key === 'ArrowLeft') api('prev');
+});
+
+// Upload
+const drop = $('#drop'), fileInput = $('#fileInput');
+drop.onclick = () => fileInput.click();
+drop.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') fileInput.click(); };
+fileInput.onchange = () => { if (fileInput.files.length) upload(fileInput.files); fileInput.value = ''; };
+['dragenter', 'dragover'].forEach((t) => drop.addEventListener(t, (e) => { e.preventDefault(); drop.classList.add('over'); }));
+['dragleave', 'drop'].forEach((t) => drop.addEventListener(t, (e) => { e.preventDefault(); drop.classList.remove('over'); }));
+drop.addEventListener('drop', (e) => { if (e.dataTransfer.files.length) upload(e.dataTransfer.files); });
+
+function upload(files) {
+  const fd = new FormData();
+  for (const f of files) fd.append('files', f);
+  fd.append('show', $('#showNow').checked ? '1' : '0');
+  const bar = $('#progress'), msg = $('#uploadMsg');
+  bar.style.display = 'block'; bar.firstElementChild.style.width = '0';
+  msg.textContent = `Uploading ${files.length} file${files.length === 1 ? '' : 's'}…`;
+  const xhr = new XMLHttpRequest();
+  xhr.open('POST', '/api/upload');
+  xhr.upload.onprogress = (e) => {
+    if (e.lengthComputable) {
+      const pct = Math.round((e.loaded / e.total) * 100);
+      bar.firstElementChild.style.width = pct + '%';
+      msg.textContent = `Uploading… ${pct}%`;
+    }
+  };
+  xhr.onload = () => {
+    bar.style.display = 'none';
+    let res = {}; try { res = JSON.parse(xhr.responseText); } catch (e) {}
+    if (xhr.status >= 400) { msg.textContent = res.error || `Upload failed (${xhr.status})`; return; }
+    const parts = [];
+    if (res.created?.length) parts.push(`Uploaded ${res.created.length} file${res.created.length === 1 ? '' : 's'}.`);
+    if (res.rejected?.length) parts.push(`Unsupported: ${res.rejected.join(', ')}`);
+    msg.textContent = parts.join(' ');
+  };
+  xhr.onerror = () => { bar.style.display = 'none'; msg.textContent = 'Upload failed — is the Pi reachable?'; };
+  xhr.send(fd);
+}
+
+// Live updates
+function connect() {
+  const es = new EventSource('/api/events');
+  es.addEventListener('state', (e) => { S = JSON.parse(e.data); render(); });
+  es.onopen = () => { $('#conn').classList.add('on'); $('#conn').textContent = 'Connected'; };
+  es.onerror = () => { $('#conn').classList.remove('on'); $('#conn').textContent = 'Reconnecting…'; };
+}
+connect();
+</script>
+</body>
+</html>

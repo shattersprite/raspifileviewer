@@ -1,0 +1,196 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PiScreen Display</title>
+<style>
+  :root { --rot: 0deg; --fg: #e8e8ea; --muted: #8a8a93; --accent: #6ea8ff; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: #000; color: var(--fg); overflow: hidden;
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; cursor: none; }
+
+  #stage { position: fixed; inset: 0; overflow: hidden; scrollbar-width: none; }
+  #stage::-webkit-scrollbar { display: none; }
+  .media { position: absolute; top: 50%; left: 50%; width: 100vw; height: 100vh;
+    transform: translate(-50%, -50%) rotate(var(--rot)); object-fit: contain; display: none;
+    background: #000; }
+  .rot90 .media, .rot270 .media { width: 100vh; height: 100vw; }
+  .fit-cover .media { object-fit: cover; }
+  /* Fit to width: page fills the width and can be scrolled from the remote */
+  .fit-width #stage { overflow-y: auto; }
+  .fit-width #img { position: static; transform: rotate(var(--rot)); width: 100vw; height: auto; }
+
+  .mode-img #img, .mode-video #vid { display: block; }
+
+  .screen { position: fixed; inset: 0; display: none; flex-direction: column; align-items: center;
+    justify-content: center; gap: 2vh; text-align: center; padding: 4vw; }
+  .mode-idle #idle, .mode-msg #msg { display: flex; }
+
+  #idle { background: radial-gradient(ellipse at 50% 40%, #16213a 0%, #05070c 70%); }
+  #idle h1 { margin: 0; font-size: 6vh; font-weight: 650; letter-spacing: -0.02em; }
+  #idle p { margin: 0; font-size: 2.6vh; color: var(--muted); }
+  #idle .url { font-size: 4vh; color: var(--accent); font-weight: 600; font-variant-numeric: tabular-nums; }
+  #idle .alt { font-size: 2.2vh; }
+  #qr { width: 26vh; height: 26vh; background: #fff; border-radius: 2vh; padding: 1.2vh; margin-top: 2vh; }
+
+  #msg .spinner { width: 7vh; height: 7vh; border-radius: 50%; border: 0.7vh solid #333;
+    border-top-color: var(--accent); animation: spin 1s linear infinite; }
+  #msg.error .spinner { display: none; }
+  #msgText { font-size: 3vh; color: var(--muted); max-width: 70vw; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  #blank { position: fixed; inset: 0; background: #000; display: none; z-index: 10; }
+  .is-blank #blank { display: block; }
+
+  #offline { position: fixed; right: 2vh; bottom: 2vh; font-size: 1.6vh; color: #ff7b7b;
+    background: rgba(0,0,0,.6); padding: .6vh 1.2vh; border-radius: 1vh; display: none; z-index: 20; }
+  .is-offline #offline { display: block; }
+</style>
+</head>
+<body class="mode-idle">
+  <div id="stage">
+    <img id="img" class="media" alt="">
+    <video id="vid" class="media" playsinline></video>
+  </div>
+
+  <div id="idle" class="screen">
+    <h1>PiScreen</h1>
+    <p>Open this address on a phone or computer on the same network to send something to this screen</p>
+    <div class="url" id="ipUrl">…</div>
+    <div class="alt" id="hostUrl"></div>
+    <img id="qr" alt="" src="/api/qr.svg" onerror="this.style.display='none'">
+  </div>
+
+  <div id="msg" class="screen"><div class="spinner"></div><div id="msgText"></div></div>
+  <div id="blank"></div>
+  <div id="offline">Reconnecting to server…</div>
+
+<script>
+const $ = (s) => document.querySelector(s);
+const stage = $('#stage'), img = $('#img'), vid = $('#vid');
+const pad = (n) => String(n).padStart(4, '0');
+let S = null;
+let wantedImg = null;
+
+function setMode(mode) {
+  document.body.classList.remove('mode-idle', 'mode-msg', 'mode-img', 'mode-video');
+  document.body.classList.add('mode-' + mode);
+  if (mode !== 'video' && vid.getAttribute('src')) {
+    vid.pause(); vid.removeAttribute('src'); vid.dataset.src = ''; vid.load();
+  }
+}
+
+function message(text, isError) {
+  $('#msgText').textContent = text;
+  $('#msg').classList.toggle('error', !!isError);
+  setMode('msg');
+}
+
+function showImage(url) {
+  wantedImg = url;
+  if (img.dataset.src === url) { setMode('img'); return; }
+  const pre = new Image();
+  pre.onload = () => {
+    if (wantedImg !== url) return;          // a newer page was requested meanwhile
+    img.src = url; img.dataset.src = url;
+    setMode('img'); stage.scrollTop = 0;
+  };
+  pre.onerror = () => { if (wantedImg === url) message('Could not load this file', true); };
+  pre.src = url;
+}
+
+function preload(url) { const i = new Image(); i.src = url; }
+
+function showVideo(url, v) {
+  wantedImg = null;
+  if (vid.dataset.src !== url) { vid.src = url; vid.dataset.src = url; }
+  setMode('video');
+  vid.loop = v.loop;
+  vid.muted = v.muted;
+  if (v.playing) {
+    vid.play().catch(() => { vid.muted = true; vid.play().catch(() => {}); });
+  } else {
+    vid.pause();
+  }
+}
+
+async function loadInfo() {
+  try {
+    const r = await fetch('/api/info'); const info = await r.json();
+    $('#ipUrl').textContent = info.ip_url.replace(/\/$/, '');
+    $('#hostUrl').textContent = 'or ' + info.host_url.replace(/\/$/, '');
+  } catch (e) {}
+}
+
+function render() {
+  const v = S.view;
+  const item = S.items.find((i) => i.id === v.item);
+  const rot = v.rotation % 360;
+  document.body.classList.toggle('is-blank', v.blank);
+  document.documentElement.style.setProperty('--rot', rot + 'deg');
+  document.body.classList.remove('rot0', 'rot90', 'rot180', 'rot270', 'fit-contain', 'fit-width', 'fit-cover');
+  document.body.classList.add('rot' + rot);
+  const fit = (v.fit === 'width' && rot % 180 !== 0) ? 'contain' : v.fit;
+  document.body.classList.add('fit-' + fit);
+
+  if (!item) { wantedImg = null; setMode('idle'); loadInfo(); return; }
+
+  if (item.kind === 'pdf') {
+    if (v.page <= item.ready_pages) {
+      showImage(`/media/${item.id}/page-${pad(v.page)}.jpg`);
+      if (v.page + 1 <= item.ready_pages) preload(`/media/${item.id}/page-${pad(v.page + 1)}.jpg`);
+      if (v.page > 1) preload(`/media/${item.id}/page-${pad(v.page - 1)}.jpg`);
+    } else if (item.status === 'error') {
+      message(`Could not convert "${item.name}": ${item.error || 'unknown error'}`, true);
+    } else {
+      wantedImg = null;
+      message(item.pages > 1 || item.ready_pages > 0
+        ? `Preparing page ${v.page} of ${item.pages}…`
+        : `Preparing "${item.name}"…`);
+    }
+  } else if (item.kind === 'image') {
+    showImage(`/media/${item.id}/source${item.ext}`);
+  } else if (item.kind === 'video') {
+    showVideo(`/media/${item.id}/source${item.ext}`, v);
+  }
+}
+
+function command(c) {
+  if (c.action === 'seek' && document.body.classList.contains('mode-video')) {
+    vid.currentTime = Math.max(0, vid.currentTime + Number(c.delta || 0));
+  } else if (c.action === 'restart') {
+    vid.currentTime = 0;
+  } else if (c.action === 'scroll') {
+    stage.scrollBy({ top: Number(c.delta || 0.5) * window.innerHeight, behavior: 'smooth' });
+  }
+}
+
+function connect() {
+  const es = new EventSource('/api/events');
+  es.addEventListener('state', (e) => { S = JSON.parse(e.data); render(); });
+  es.addEventListener('command', (e) => command(JSON.parse(e.data)));
+  es.onopen = () => document.body.classList.remove('is-offline');
+  es.onerror = () => document.body.classList.add('is-offline');
+}
+connect();
+
+// A keyboard or presenter clicker plugged into the Pi works too.
+const send = (action, extra = {}) => fetch('/api/control', {
+  method: 'POST', headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ action, ...extra }) });
+document.addEventListener('keydown', (e) => {
+  const k = e.key;
+  if (['ArrowRight', 'PageDown', ' ', 'Enter'].includes(k)) send('next');
+  else if (['ArrowLeft', 'PageUp', 'Backspace'].includes(k)) send('prev');
+  else if (k === 'Home') send('first');
+  else if (k === 'End') send('last');
+  else if (k === 'b' || k === '.') send('blank');
+  else if (k === 'ArrowDown') send('scroll', { delta: 0.5 });
+  else if (k === 'ArrowUp') send('scroll', { delta: -0.5 });
+  else return;
+  e.preventDefault();
+});
+</script>
+</body>
+</html>
