@@ -769,11 +769,24 @@ def update_apply():
     if not IS_GIT:
         return jsonify(error="Not a git checkout"), 400
     with _update_lock:
+        # Find the version we're moving to, then tell every screen before anything changes,
+        # so the "Updating PiScreen" band is up while the Pi pulls and restarts.
+        git("fetch", "--quiet", "origin", timeout=60)
+        target = git("show", "@{u}:VERSION").stdout.strip() or None
+        info = {"from": SERVER_INFO["version"], "to": target}
+        broadcast("updating", {"stage": "start", **info})
+        time.sleep(1.2)  # let the band arrive before the work starts
         pull = git("pull", "--ff-only", timeout=180)
         _update_cache["data"] = None
     if pull.returncode != 0:
-        return jsonify(error="Update failed: " + (pull.stderr or pull.stdout).strip()[-400:]), 500
-    threading.Timer(1.0, restart_self).start()
+        err = (pull.stderr or pull.stdout).strip()
+        # Show git's last line as a sentence: "fatal: unable to access …" → "Unable to access …."
+        last = re.sub(r"^(fatal|error|hint):\s*", "", err.splitlines()[-1]) if err else ""
+        last = (last[:1].upper() + last[1:160].rstrip(".")) + "." if last else ""
+        broadcast("updating", {"stage": "failed", **info, "error": last})
+        return jsonify(error="Update failed: " + err[-400:]), 500
+    broadcast("updating", {"stage": "restarting", **info})
+    threading.Timer(1.5, restart_self).start()
     return jsonify(ok=True, output=pull.stdout.strip()[-400:])
 
 

@@ -198,6 +198,7 @@
   </section>
 </main>
 
+<script src="/static/update-band.js"></script>
 <script>
 const $ = (s) => document.querySelector(s);
 const pad = (n) => String(n).padStart(4, '0');
@@ -443,6 +444,7 @@ function connect() {
   if (events) events.close();
   const es = events = new EventSource('/api/events');
   es.addEventListener('auth', () => { es.close(); start(); });
+  es.addEventListener('updating', (e) => UpdateBand.handle(JSON.parse(e.data)));
   let commit = null;
   es.addEventListener('state', (e) => {
     S = JSON.parse(e.data);

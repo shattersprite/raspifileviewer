@@ -158,7 +158,12 @@ async function refreshAccess(goHome) {
 function openEvents() {
   events = new EventSource(server + '/api/events');
   events.addEventListener('state', (e) => {
+    const before = state && state.server && state.server.commit;
     state = JSON.parse(e.data);
+    // The Pi came back after updating itself: finish the "Updating PiScreen" band.
+    if (window.UpdateBand && UpdateBand.active && before && state.server && state.server.commit !== before) {
+      UpdateBand.done(state.server.version);
+    }
     if (state.screen && access) { access.name = state.screen.name; access.lock = state.screen.lock; }
     // The Pi no longer shows our share (e.g. it restarted): clean up here too.
     const st = state.view.stream;
@@ -171,6 +176,7 @@ function openEvents() {
     renderShareInfo();
   });
   events.addEventListener('signal', (e) => onSignal(JSON.parse(e.data)));
+  events.addEventListener('updating', (e) => window.UpdateBand && UpdateBand.handle(JSON.parse(e.data)));
   events.addEventListener('auth', () => refreshAccess());
   events.onopen = () => $('#dot').classList.add('on');
   events.onerror = () => {

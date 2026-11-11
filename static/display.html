@@ -129,6 +129,7 @@
   <div id="blank"></div>
   <div id="offline">Reconnecting to server…</div>
 
+<script src="/static/update-band.js"></script>
 <script>
 const $ = (s) => document.querySelector(s);
 const stage = $('#stage'), img = $('#img'), vid = $('#vid'), svid = $('#svid');
@@ -334,6 +335,7 @@ function connect() {
     render();
   });
   es.addEventListener('command', (e) => command(JSON.parse(e.data)));
+  es.addEventListener('updating', (e) => UpdateBand.handle(JSON.parse(e.data)));
   es.addEventListener('signal', (e) => {
     const sig = JSON.parse(e.data);
     if (sig.type === 'offer') onOffer(sig).catch((err) => message('Screen share failed: ' + err.message, true));
