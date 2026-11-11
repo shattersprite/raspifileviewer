@@ -243,7 +243,7 @@ async function scanNetwork() {
       const base = a.address.split('.').slice(0, 3).join('.');
       for (let i = 1; i < 255; i++) {
         const ip = `${base}.${i}`;
-        if (ip !== a.address && !hosts.includes(ip)) hosts.push(ip);
+        if (!hosts.includes(ip)) hosts.push(ip); // includes this computer, in case PiScreen runs here
       }
     }
   }

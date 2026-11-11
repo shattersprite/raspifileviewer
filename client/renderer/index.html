@@ -113,6 +113,20 @@
               <span class="key-text">Turn pages, rotate, blank the screen, manage the library.</span>
             </button>
           </div>
+
+          <section class="screens" aria-labelledby="screensTitle">
+            <div class="row-between flush-top">
+              <h2 id="screensTitle">Screens</h2>
+              <button id="findScreensBtn" class="key small" type="button">Find screens</button>
+            </div>
+            <p class="note">Switch to another PiScreen to share your screen or show files there.</p>
+            <ul id="screenList" class="screen-list"></ul>
+            <form id="addScreenForm" class="inline-form">
+              <input id="addScreenInput" placeholder="Add a screen by address, for example 192.168.1.60:8080" spellcheck="false" autocomplete="off" aria-label="Screen address">
+              <button class="key" type="submit">Add screen</button>
+            </form>
+            <div id="screensMsg" class="note" role="status"></div>
+          </section>
         </div>
       </section>
 

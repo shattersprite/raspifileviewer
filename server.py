@@ -300,7 +300,7 @@ def screen_changed():
 @app.get("/api/auth")
 def auth_status():
     c = creds()
-    resp = jsonify({**AUTH.public(), "access": allowed(), "admin": is_admin(),
+    resp = jsonify({**AUTH.public(), "id": AUTH.s["id"], "access": allowed(), "admin": is_admin(),
                     "this_device": AUTH.is_locked_device(c["device"])})
     if not c["device"]:  # give web browsers a stable id so "only this device" can work for them too
         resp.set_cookie("ps_device", secrets.token_hex(16), max_age=COOKIE_YEAR, httponly=True, samesite="Lax")
@@ -735,7 +735,7 @@ def display_info():
 
 @app.get("/api/version")
 def version():
-    return jsonify({**SERVER_INFO, "name": AUTH.s["name"], "lock": AUTH.s["lock"]["mode"]})
+    return jsonify({**SERVER_INFO, "id": AUTH.s["id"], "name": AUTH.s["name"], "lock": AUTH.s["lock"]["mode"]})
 
 
 @app.get("/api/update")

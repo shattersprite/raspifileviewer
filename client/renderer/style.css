@@ -170,6 +170,24 @@ input:focus-visible, select:focus-visible { outline-offset: 0; }
 .key-title { font-size: 20px; font-weight: 700; font-stretch: 88%; line-height: 1.2; }
 .key-text { color: var(--slate); font-size: 13px; max-width: 34ch; }
 
+/* Screens list on Home: every PiScreen you can switch to */
+.screens { margin-top: 36px; }
+.screen-list { list-style: none; margin: 12px 0 0; padding: 0; border-top: 1px solid var(--rule); }
+.screen-row { display: flex; align-items: center; gap: 14px; padding: 12px 6px; border-bottom: 1px solid var(--rule); }
+.screen-row.current { box-shadow: inset 3px 0 0 var(--amber); padding-left: 16px; }
+.mini { position: relative; width: 32px; height: 22px; border: 2px solid var(--ink); border-radius: 3px; flex: none; opacity: .45; }
+.screen-row.online .mini { opacity: 1; }
+.mini::after { content: ""; position: absolute; right: -6px; top: -6px; width: 9px; height: 9px; border-radius: 50%;
+  background: var(--key-edge); border: 2px solid var(--chassis); }
+.screen-row.online .mini::after { background: var(--signal); }
+.screen-row .grow { flex: 1; min-width: 0; }
+.screen-row b { display: block; font-size: 15px; font-weight: 700; font-stretch: 112%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.screen-row .note { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.row-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
+.screen-row .link-btn { font-size: 12px; color: var(--slate); }
+.screen-list .empty { padding: 14px 6px; color: var(--slate); font-size: 13px; border-bottom: 1px solid var(--rule); }
+#screensMsg { margin-top: 8px; min-height: 1.5em; }
+
 /* ---------- share ---------- */
 .share-layout { display: grid; grid-template-columns: 1fr 300px; gap: 28px; }
 .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 12px; }

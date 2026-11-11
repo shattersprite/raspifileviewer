@@ -51,7 +51,8 @@ function normalize(addr) {
   if (!u.port) u.port = '8080';
   return u.origin;
 }
-const shortAddr = (url) => url.replace(/^http:\/\//, '').replace(/:8080$/, '');
+// Addresses always show their port, so "192.168.1.50:8080" is never mistaken for a different place.
+const shortAddr = (url) => url.replace(/^http:\/\//, '');
 
 // text/plain avoids a CORS preflight; the server parses the JSON regardless.
 async function post(path, body) {
@@ -80,6 +81,7 @@ function show(view) {
   $$('.nav-item').forEach((n) => n.classList.toggle('active', n.dataset.view === view));
   if (view === 'share' && !share) loadSources();
   if (view === 'admin') openAdmin();
+  if (view === 'home') refreshScreens();
 }
 
 function updateChrome() {
@@ -119,7 +121,11 @@ async function connect(addr, quiet) {
     const info = await res.json();
     if (info.app !== 'piscreen') throw new Error('not a PiScreen server');
   } catch (err) {
-    if (!quiet) $('#setupMsg').textContent = `Couldn't reach PiScreen at ${shortAddr(url)} (${err.message}).`;
+    if (!quiet) {
+      $('#setupMsg').textContent = err.name === 'TimeoutError' || err.message === 'Failed to fetch'
+        ? `Nothing answered at ${shortAddr(url)}. Check that the Pi is on, and on the same network as this computer.`
+        : `${shortAddr(url)} answered, but it isn't PiScreen. Check the address and port.`;
+    }
     return false;
   }
   if (share) stopShare(true);
@@ -141,6 +147,7 @@ async function refreshAccess(goHome) {
     $('#dot').classList.remove('on');
     return;
   }
+  remember(server, { id: access.id, name: access.name, lock: access.lock, online: true });
   updateChrome();
   if (access.access) {
     if (!events) openEvents();
@@ -154,6 +161,142 @@ async function refreshAccess(goHome) {
     if (currentView !== 'admin') show('locked');
   }
 }
+
+// ------------------------------------------------------------------ screens list (Home)
+// Every PiScreen this app knows about: ones used before (saved), plus ones found on the network.
+
+const known = new Map(); // url -> { url, name, lock, online: true | false | null }
+let lastProbe = 0;
+
+function loadKnown(list) {
+  for (const s of list || []) {
+    if (s && s.url && !known.has(s.url)) known.set(s.url, { url: s.url, id: s.id, name: s.name || 'PiScreen', lock: 'off', online: null });
+  }
+}
+
+function saveKnown() {
+  P.setConfig({ recent: [...known.values()].slice(0, 12).map(({ url, id, name }) => ({ url, id, name })) });
+}
+
+function remember(url, info) {
+  // The same Pi can answer on two addresses (cable and Wi-Fi). Keep one row per Pi.
+  if (info.id) {
+    const twin = [...known.values()].find((s) => s.id === info.id && s.url !== url);
+    if (twin && url !== server) {
+      Object.assign(twin, { ...info, url: twin.url });
+      saveKnown();
+      renderScreens();
+      return;
+    }
+    if (twin) known.delete(twin.url); // keep the address we're connected on
+  }
+  const s = known.get(url) || { url, name: 'PiScreen', lock: 'off', online: null };
+  Object.assign(s, info);
+  known.set(url, s);
+  saveKnown();
+  renderScreens();
+}
+
+async function probeScreen(s) {
+  try {
+    const info = await (await fetch(s.url + '/api/version', { signal: AbortSignal.timeout(1500) })).json();
+    if (info.app !== 'piscreen') throw new Error('not PiScreen');
+    Object.assign(s, { online: true, id: info.id || s.id, name: info.name || s.name, lock: info.lock || 'off' });
+  } catch {
+    s.online = false;
+  }
+}
+
+async function refreshScreens(force) {
+  renderScreens();
+  if (!force && Date.now() - lastProbe < 10000) return;
+  lastProbe = Date.now();
+  await Promise.all([...known.values()].filter((s) => s.url !== server).map(probeScreen));
+  saveKnown();
+  renderScreens();
+}
+
+function renderScreens() {
+  const list = $('#screenList');
+  if (!list) return;
+  const rank = (s) => (s.url === server ? 0 : s.online === true ? 1 : s.online === null ? 2 : 3);
+  const items = [...known.values()].sort((a, b) => rank(a) - rank(b) || a.name.localeCompare(b.name));
+  if (items.length <= 1 && (!items.length || items[0].url === server)) {
+    list.innerHTML = (items.length ? row(items[0]) : '')
+      + '<li class="empty">No other screens yet. Use Find screens, or add one by its address.</li>';
+    return;
+  }
+  list.innerHTML = items.map(row).join('');
+}
+
+function row(s) {
+  const current = s.url === server;
+  const off = s.online === false;
+  const status = off ? '<span>Offline</span>' : s.online === null ? '<span>Checking…</span>' : '';
+  const lock = s.lock && s.lock !== 'off' ? '<span class="lock-chip">Locked</span>' : '';
+  const actions = current ? '<span class="lock-chip">Connected</span>'
+    : `<button class="key small" data-switch="${esc(s.url)}" ${off ? 'disabled' : ''}>Switch</button>
+       <button class="key small primary" data-cast="${esc(s.url)}" ${off ? 'disabled' : ''}>Share screen here</button>
+       <button class="link-btn" data-forget="${esc(s.url)}" aria-label="Forget ${esc(s.name)}">Forget</button>`;
+  return `<li class="screen-row ${current ? 'current' : ''} ${s.online || current ? 'online' : ''}">
+    <span class="mini" aria-hidden="true"></span>
+    <div class="grow"><b>${esc(s.name)}</b><span class="note"><span>${esc(shortAddr(s.url))}</span>${lock}${status}</span></div>
+    <div class="row-actions">${actions}</div></li>`;
+}
+
+async function switchTo(url, thenShare) {
+  const s = known.get(url) || { name: shortAddr(url) };
+  if (share && !confirm(`Switching to ${s.name} stops sharing to ${access?.name || 'this screen'}.`)) return;
+  setMsg($('#screensMsg'), `Connecting to ${s.name}…`);
+  if (!(await connect(url, true))) {
+    s.online = false;
+    renderScreens();
+    setMsg($('#screensMsg'), `${s.name} at ${shortAddr(url)} didn't answer. Check it's on and on the same network as this computer.`, 'bad');
+    return;
+  }
+  setMsg($('#screensMsg'), '');
+  if (thenShare && access && access.access) show('share');
+}
+
+$('#screenList').addEventListener('click', (e) => {
+  const b = e.target.closest('button');
+  if (!b) return;
+  if (b.dataset.switch) switchTo(b.dataset.switch, false);
+  else if (b.dataset.cast) switchTo(b.dataset.cast, true);
+  else if (b.dataset.forget) { known.delete(b.dataset.forget); saveKnown(); renderScreens(); }
+});
+
+$('#findScreensBtn').addEventListener('click', async () => {
+  const btn = $('#findScreensBtn');
+  btn.disabled = true;
+  btn.textContent = 'Searching…';
+  setMsg($('#screensMsg'), 'Looking for PiScreens on this network. This takes a few seconds.');
+  const found = await P.scan();
+  for (const f of found) remember(f.url, { id: f.id, name: f.name || 'PiScreen', lock: f.lock || 'off', online: true });
+  await refreshScreens(true);
+  btn.disabled = false;
+  btn.textContent = 'Find screens';
+  const currentId = access && access.id;
+  const others = new Set(found.filter((f) => f.url !== server && (!f.id || f.id !== currentId)).map((f) => f.id || f.url)).size;
+  setMsg($('#screensMsg'), others ? `Found ${others} other screen${others === 1 ? '' : 's'}.`
+    : 'No other screens found on this network. Add one by its address if it\'s on another network.', others ? 'ok' : '');
+});
+
+$('#addScreenForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  let url;
+  try { url = normalize($('#addScreenInput').value); } catch { url = null; }
+  if (!url) { setMsg($('#screensMsg'), 'Type an address like 192.168.1.60 or 192.168.1.60:8080.', 'bad'); return; }
+  const s = { url, name: shortAddr(url), lock: 'off', online: null };
+  await probeScreen(s);
+  if (!s.online) {
+    setMsg($('#screensMsg'), `Nothing answered at ${shortAddr(url)}. Check the address, and that the Pi is on the same network as this computer.`, 'bad');
+    return;
+  }
+  remember(url, s);
+  $('#addScreenInput').value = '';
+  setMsg($('#screensMsg'), `Added ${s.name}.`, 'ok');
+});
 
 function openEvents() {
   events = new EventSource(server + '/api/events');
@@ -192,6 +335,7 @@ async function findPis() {
   $('#findBtn').disabled = true;
   const found = await P.scan();
   $('#findBtn').disabled = false;
+  for (const f of found) remember(f.url, { id: f.id, name: f.name || 'PiScreen', lock: f.lock || 'off', online: true });
   if (!found.length) {
     list.innerHTML = '';
     $('#setupMsg').textContent = 'No screens found. Type the address shown on the Pi\'s screen.';
@@ -682,6 +826,8 @@ $('#updatesBtn').addEventListener('click', async () => {
   const cfg = await P.getConfig();
   $('#miniMode').checked = cfg.miniToolbar !== false;
   $('#miniMode').addEventListener('change', () => P.setConfig({ miniToolbar: $('#miniMode').checked }));
+  loadKnown(cfg.recent);
+  if (cfg.server) loadKnown([{ url: cfg.server }]);
   updateChrome();
   show('connect');
   if (cfg.server && await connect(cfg.server, true)) return;

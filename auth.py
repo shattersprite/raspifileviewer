@@ -51,6 +51,7 @@ class Auth:
         except (OSError, ValueError):
             s = {}
         s.setdefault("secret", secrets.token_hex(32))
+        s.setdefault("id", secrets.token_hex(8))  # stable id, so apps can tell one Pi on two addresses apart
         s.setdefault("admin", _hash(DEFAULT_ADMIN_CODE))
         s.setdefault("admin_gen", 1)
         s.setdefault("lock_gen", 1)
