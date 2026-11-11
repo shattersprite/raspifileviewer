@@ -1,7 +1,7 @@
 {
   "name": "piscreen-client",
   "productName": "PiScreen",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "description": "Send files and your screen to a Raspberry Pi running PiScreen",
   "author": "shattersprite",
   "license": "MIT",

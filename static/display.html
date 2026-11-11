@@ -5,10 +5,10 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>PiScreen Display</title>
 <style>
-  :root { --rot: 0deg; --fg: #e8e8ea; --muted: #8a8a93; --accent: #6ea8ff; }
+  :root { --rot: 0deg; --fg: #e6e8ea; --muted: #8b949d; --accent: #f2a40c; }
   * { box-sizing: border-box; }
   html, body { margin: 0; height: 100%; background: #000; color: var(--fg); overflow: hidden;
-    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; cursor: none; }
+    font-family: "Archivo", system-ui, sans-serif; cursor: none; }
 
   #stage { position: fixed; inset: 0; overflow: hidden; scrollbar-width: none; }
   #stage::-webkit-scrollbar { display: none; }
@@ -28,31 +28,51 @@
     justify-content: center; gap: 2vh; text-align: center; padding: 4vw; }
   .mode-idle #idle, .mode-msg #msg { display: flex; }
 
-  /* Welcome screen: name + clock on top, how to connect in the middle, lock status at the bottom */
-  #idle { background: linear-gradient(135deg, #0b1d3a 0%, #12305e 55%, #1b4a8a 100%);
-    justify-content: space-between; align-items: stretch; text-align: left; padding: 5vh 5vw; gap: 0; }
-  .w-top { display: flex; justify-content: space-between; align-items: flex-start; }
-  .w-name { font-size: 6.5vh; font-weight: 700; letter-spacing: -0.02em; line-height: 1.1; }
-  .w-sub { font-size: 2.3vh; color: #a9bddb; margin-top: 1vh; }
-  .w-clock { text-align: right; }
-  #clock { font-size: 8vh; font-weight: 300; font-variant-numeric: tabular-nums; line-height: 1; }
-  #date { font-size: 2.4vh; color: #a9bddb; margin-top: 1vh; }
-  .w-card { align-self: center; display: flex; align-items: center; gap: 5vh; background: rgba(255,255,255,.08);
-    border: 1px solid rgba(255,255,255,.14); border-radius: 3vh; padding: 4.5vh 5vh; max-width: 80vw;
-    backdrop-filter: blur(6px); }
-  .w-card h2 { margin: 0 0 2.5vh; font-size: 4vh; font-weight: 650; }
+  /* Welcome screen, read from across a room: the screen's name, a clock, how to connect,
+     and test-card colour bars along the bottom while no picture is coming in. */
+  @font-face { font-family: "Archivo"; src: url("/static/fonts/archivo.woff2") format("woff2");
+    font-weight: 100 900; font-stretch: 62% 125%; }
+  #idle { background: #1e2226; color: #e6e8ea; font-family: "Archivo", system-ui, sans-serif;
+    display: none; flex-direction: column; justify-content: space-between; align-items: stretch;
+    text-align: left; padding: 6vh 6vw 0; gap: 0; }
+  .mode-idle #idle { display: flex; }
+  .w-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 4vw; }
+  .w-name { font-size: 10vh; font-weight: 800; font-stretch: 125%; line-height: 1; letter-spacing: -0.015em;
+    overflow-wrap: anywhere; }
+  .w-sub { font-size: 2.6vh; color: #8b949d; margin-top: 2vh; display: flex; align-items: center; gap: 1.2vh; }
+  .w-sub .lamp { width: 1.3vh; height: 1.3vh; border-radius: 50%; background: #2e9e62; box-shadow: 0 0 1.2vh rgba(46,158,98,.7); }
+  .w-clock { text-align: right; flex: none; }
+  #clock { font-size: 12vh; font-weight: 300; font-stretch: 70%; line-height: .9; font-variant-numeric: tabular-nums; }
+  #clock small { font-size: 3.2vh; font-weight: 500; font-stretch: 100%; margin-left: 1vh; color: #8b949d; }
+  #date { font-size: 2.4vh; color: #8b949d; margin-top: 1.4vh; }
+
+  .w-connect { display: flex; align-items: center; justify-content: space-between; gap: 6vw; }
+  .w-connect h2 { margin: 0 0 3vh; font-size: 3.4vh; font-weight: 600; color: #8b949d; }
   .w-steps { margin: 0; padding: 0; list-style: none; counter-reset: s; }
-  .w-steps li { counter-increment: s; display: flex; align-items: center; gap: 2vh; font-size: 2.7vh; margin: 1.8vh 0; color: #dbe5f3; }
-  .w-steps li::before { content: counter(s); flex: none; width: 4.4vh; height: 4.4vh; border-radius: 50%;
-    background: #ff8a3d; color: #1a1206; font-weight: 700; display: flex; align-items: center; justify-content: center; font-size: 2.3vh; }
-  .w-steps b { color: #fff; }
-  #ipUrl { color: #8fc1ff; font-weight: 650; font-variant-numeric: tabular-nums; }
-  #qr { width: 24vh; height: 24vh; background: #fff; border-radius: 2vh; padding: 1.2vh; flex: none; }
-  /* Blur is expensive on a Pi 3's GPU */
-  .lowpower .w-card { backdrop-filter: none; background: rgba(255,255,255,.1); }
-  .w-bottom { display: flex; justify-content: space-between; align-items: center; font-size: 2.3vh; color: #a9bddb; }
-  #lockNote { display: flex; align-items: center; gap: 1.2vh; background: rgba(0,0,0,.25); padding: 1.2vh 2.2vh; border-radius: 99px; }
-  #lockNote.locked { color: #ffd2b0; }
+  .w-steps li { counter-increment: s; display: grid; grid-template-columns: 5vh 1fr; align-items: baseline;
+    font-size: 3.6vh; line-height: 1.3; margin: 0 0 2.2vh; }
+  .w-steps li::before { content: counter(s); font-weight: 700; font-stretch: 70%; color: #f2a40c; font-size: 3.6vh; }
+  .w-steps b { font-weight: 700; }
+  #ipUrl { color: #f2a40c; font-weight: 700; font-variant-numeric: tabular-nums; }
+  #qr { width: 27vh; height: 27vh; background: #fff; border-radius: 1vh; padding: 1.4vh; flex: none; }
+
+  .w-bottom { display: flex; justify-content: space-between; align-items: center; font-size: 2.3vh; color: #8b949d;
+    padding: 2.4vh 0; }
+  #lockNote { display: flex; align-items: center; gap: 1vh; }
+  #lockNote svg { width: 2.4vh; height: 2.4vh; fill: none; stroke: currentColor; stroke-width: 2; display: none; }
+  #lockNote.locked { color: #e6e8ea; }
+  #lockNote.locked svg { display: block; }
+  .bars { display: flex; height: 1.6vh; margin: 0 -6vw; }
+  .bars i { flex: 1; }
+  .bars i:nth-child(1) { background: #c4c7ca; } .bars i:nth-child(2) { background: #d9c23c; }
+  .bars i:nth-child(3) { background: #40b6c2; } .bars i:nth-child(4) { background: #3fa35d; }
+  .bars i:nth-child(5) { background: #ad52ad; } .bars i:nth-child(6) { background: #cf463b; }
+  .bars i:nth-child(7) { background: #3a55b5; }
+  @media (prefers-reduced-motion: no-preference) {
+    .mode-idle .bars i { animation: bar-in .5s cubic-bezier(.2,.7,.2,1) both; animation-delay: calc(var(--i) * 60ms); }
+    .lowpower .bars i { animation: none; }
+  }
+  @keyframes bar-in { from { transform: scaleY(0); transform-origin: bottom; } }
 
   #msg .spinner { width: 7vh; height: 7vh; border-radius: 50%; border: 0.7vh solid #333;
     border-top-color: var(--accent); animation: spin 1s linear infinite; }
@@ -79,26 +99,29 @@
     <div class="w-top">
       <div>
         <div class="w-name" id="screenName">PiScreen</div>
-        <div class="w-sub">Ready to share</div>
+        <div class="w-sub"><span class="lamp"></span>Ready for something to show</div>
       </div>
       <div class="w-clock"><div id="clock">--:--</div><div id="date"></div></div>
     </div>
 
-    <div class="w-card">
+    <div class="w-connect">
       <div>
-        <h2>Share to this screen</h2>
+        <h2>Put something on this screen</h2>
         <ol class="w-steps">
-          <li><span>Open the <b>PiScreen app</b> on your computer, or</span></li>
-          <li><span>go to <span id="ipUrl">…</span> on a phone or laptop</span></li>
-          <li><span>Pick <b id="stepName">PiScreen</b> and share a file or your screen</span></li>
+          <li><span>Open the <b>PiScreen app</b> on your computer, or scan the code with a phone</span></li>
+          <li><span>Or go to <span id="ipUrl">…</span> in any browser</span></li>
+          <li><span>Pick <b id="stepName">PiScreen</b>, then share a file or your screen</span></li>
         </ol>
       </div>
       <img id="qr" alt="" src="/api/qr.svg" onerror="this.style.display='none'">
     </div>
 
-    <div class="w-bottom">
-      <span id="lockNote">Open to everyone on this network</span>
-      <span id="hostUrl"></span>
+    <div>
+      <div class="w-bottom">
+        <span id="lockNote"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg><span id="lockText">Anyone on this network can share here</span></span>
+        <span id="hostUrl"></span>
+      </div>
+      <div class="bars" aria-hidden="true"><i style="--i:0"></i><i style="--i:1"></i><i style="--i:2"></i><i style="--i:3"></i><i style="--i:4"></i><i style="--i:5"></i><i style="--i:6"></i></div>
     </div>
   </div>
 
@@ -232,14 +255,19 @@ function renderWelcome() {
   document.title = sc.name;
   const note = $('#lockNote');
   note.classList.toggle('locked', sc.lock !== 'off');
-  note.textContent = sc.lock === 'passcode' ? '🔒 A passcode is needed to share to this screen'
-    : sc.lock === 'device' ? `🔒 Only ${sc.device_name || 'the admin\'s computer'} can share to this screen`
-    : 'Open to everyone on this network';
+  $('#lockText').textContent = sc.lock === 'passcode' ? 'You need the passcode to share here'
+    : sc.lock === 'device' ? `Only ${sc.device_name || "the admin's computer"} can share here`
+    : 'Anyone on this network can share here';
 }
 
 function tickClock() {
   const now = new Date();
-  $('#clock').textContent = now.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  // Big hours and minutes, with AM/PM (if the locale uses it) set small beside them.
+  const parts = new Intl.DateTimeFormat([], { hour: 'numeric', minute: '2-digit' }).formatToParts(now);
+  const clock = $('#clock');
+  clock.textContent = parts.filter((p) => p.type !== 'dayPeriod').map((p) => p.value).join('').trim();
+  const period = parts.find((p) => p.type === 'dayPeriod');
+  if (period) clock.insertAdjacentHTML('beforeend', `<small>${period.value}</small>`);
   $('#date').textContent = now.toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' });
 }
 tickClock();

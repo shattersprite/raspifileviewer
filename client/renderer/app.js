@@ -99,7 +99,9 @@ function updateChrome() {
   const lock = access && access.lock;
   $('#roomName').textContent = name;
   $('#homeName').textContent = name;
-  $('#roomSub').textContent = shortAddr(server) + (lock === 'passcode' ? ' · 🔒 Passcode' : lock === 'device' ? ' · 🔒 One computer only' : '');
+  $('#roomSub').textContent = shortAddr(server);
+  $('#roomLock').textContent = lock === 'passcode' ? 'Passcode lock' : lock === 'device' ? 'Locked to one computer' : '';
+  $('#roomLock').classList.toggle('hidden', !lock || lock === 'off');
   $('#blankBtn').classList.toggle('on', !!(state && state.view.blank));
 }
 
@@ -180,7 +182,7 @@ function openEvents() {
 async function findPis() {
   const list = $('#found');
   $('#setupMsg').textContent = '';
-  list.innerHTML = '<li class="muted">Searching your network…</li>';
+  list.innerHTML = '<li class="note">Searching your network…</li>';
   $('#findBtn').disabled = true;
   const found = await P.scan();
   $('#findBtn').disabled = false;
@@ -189,9 +191,9 @@ async function findPis() {
     $('#setupMsg').textContent = 'No screens found. Type the address shown on the Pi\'s screen.';
     return found;
   }
-  list.innerHTML = found.map((f) => `<li><span class="scr">🖥</span><span class="grow"><b>${esc(f.name || 'PiScreen')}</b>
-    <div class="muted">${esc(shortAddr(f.url))}${f.lock && f.lock !== 'off' ? ' · 🔒 locked' : ''}</div></span>
-    <button class="btn primary" data-url="${esc(f.url)}">Connect</button></li>`).join('');
+  list.innerHTML = found.map((f) => `<li><span class="grow"><b>${esc(f.name || 'PiScreen')}</b>
+    <span class="note"><span>${esc(shortAddr(f.url))}</span>${f.lock && f.lock !== 'off' ? '<span class="lock-chip">Locked</span>' : ''}</span></span>
+    <button class="key primary" data-url="${esc(f.url)}">Connect</button></li>`).join('');
   return found;
 }
 
@@ -242,23 +244,37 @@ function renderHome() {
   if (!state) return;
   const v = state.view;
   const item = state.items.find((i) => i.id === v.item);
-  let title = 'Welcome screen', sub = 'Waiting for something to show', img = null;
-  if (v.stream) { title = 'Screen sharing'; sub = v.stream.source; }
+  let title = 'Welcome screen', sub = 'Nothing is being shown. Pick an input below.', img = null;
+  if (v.stream) { title = v.stream.source; sub = 'A computer is sharing its screen.'; }
   else if (item) {
     title = item.name;
     if (item.kind === 'pdf') {
       sub = `Page ${v.page} of ${item.pages}`;
       if (v.page <= item.ready_pages) img = `${server}/media/${item.id}/thumb-${pad(v.page)}.jpg`;
     } else if (item.kind === 'image') { sub = 'Image'; img = `${server}/media/${item.id}/source${item.ext}`; }
-    else sub = 'Video';
+    else sub = v.playing ? 'Video, playing' : 'Video, paused';
   }
-  if (v.blank) sub += ' · screen blanked';
+  if (v.blank) sub = 'The screen is blanked. Press Blank screen to bring it back.';
   $('#nowTitle').textContent = title;
   $('#nowSub').textContent = sub;
+  const live = !!(v.stream || item) && !v.blank;
+  $('#tally').classList.toggle('live', live);
+  document.body.classList.toggle('is-live', live);
+  $('#stopAllBtn').classList.toggle('stop', !!(v.stream || item));
+  document.querySelector('[data-key=share]').classList.toggle('lit', !!v.stream);
+  document.querySelector('[data-key=file]').classList.toggle('lit', !v.stream && !!item);
+
   const prev = $('#nowPreview');
-  if (img) { if (prev.querySelector('img')?.getAttribute('src') !== img) prev.innerHTML = `<img src="${img}" alt="">`; }
-  else prev.textContent = v.stream ? '🖥 Live' : item ? '▶' : (access?.name || 'PiScreen');
+  const key = img || (v.blank ? 'blank' : v.stream ? 'stream' : item ? 'video' : 'bars');
+  if (prev.dataset.key === key) return;
+  prev.dataset.key = key;
+  if (img) prev.innerHTML = `<img src="${img}" alt="">`;
+  else if (key === 'bars') prev.innerHTML = '<div class="bars">' + TEST_BARS.map((c) => `<i style="background:${c}"></i>`).join('') + '</div>';
+  else prev.textContent = key === 'blank' ? 'Blanked' : key === 'stream' ? 'Live from a computer' : 'Playing a video';
 }
+
+// The welcome screen's signature: test-card colour bars.
+const TEST_BARS = ['#c4c7ca', '#d9c23c', '#40b6c2', '#3fa35d', '#ad52ad', '#cf463b', '#3a55b5'];
 
 // ------------------------------------------------------------------ sources
 
@@ -274,11 +290,11 @@ function renderSources() {
     return `<button class="source ${s.id === selectedId ? 'selected' : ''}" data-id="${esc(s.id)}" ${share ? 'disabled' : ''}>
       <img src="${s.thumbnail}" alt="">
       <span class="name">${esc(s.name)}</span>
-      <span class="detail">${esc(s.detail || 'Window')}${match ? ' · <span class="match">matches the Pi</span>' : ''}</span>
+      <span class="detail"><span>${esc(s.detail || 'Window')}</span>${match ? '<span class="match">Matches the Pi</span>' : ''}</span>
     </button>`;
   };
   $('#screens').innerHTML = sources.filter((s) => s.type === 'screen').map(card).join('');
-  $('#windows').innerHTML = sources.filter((s) => s.type === 'window').map(card).join('') || '<span class="muted">No windows</span>';
+  $('#windows').innerHTML = sources.filter((s) => s.type === 'window').map(card).join('') || '<span class="note">No windows are open.</span>';
   updateShareUi();
 }
 
@@ -294,8 +310,10 @@ function renderShareInfo() {
   const d = state && state.display && state.display.width > 0 ? state.display : null;
   const t = targetSize();
   const lp = lowPower();
-  $('#piInfo').textContent = (d ? `Pi screen: ${d.width}×${d.height}` : 'Pi screen: waiting for the display…')
-    + (state && state.server && state.server.model ? ` · ${state.server.model.replace(/ Rev [\d.]+$/, '')}` : '');
+  const model = state && state.server && state.server.model && state.server.model !== 'Unknown device'
+    ? state.server.model.replace(/ Rev [\d.]+$/, '') : 'The Pi';
+  $('#piInfo').textContent = d ? `${model} has a ${d.width}×${d.height} screen.`
+    : `${model} hasn't reported its screen size yet. Is the Pi's screen on?`;
   $('#piRes').textContent = t ? `${t.width}×${t.height}` : "the Pi's resolution";
   $('#lowPowerNote').classList.toggle('hidden', !lp);
   const smooth = $('#quality option[value=smooth]');
@@ -309,13 +327,15 @@ function updateShareUi() {
   btn.disabled = !share && !selectedId;
   btn.textContent = share ? 'Stop sharing' : 'Start sharing';
   btn.classList.toggle('primary', !share);
-  btn.classList.toggle('orange', !!share);
+  btn.classList.toggle('stop', !!share);
   $('#navLive').classList.toggle('hidden', !share);
   $('#shareBar').classList.toggle('hidden', !share);
   $('#shareBar').classList.toggle('paused', !!(share && share.paused));
   if (share) {
-    $('#shareBarTitle').textContent = `${share.paused ? 'Paused' : 'Sharing'} · ${share.src.name} → ${access?.name || 'PiScreen'}`;
-    $('#pauseBtn').textContent = share.paused ? '▶ Resume' : '❚❚ Pause';
+    $('#shareBarTitle').textContent = share.paused
+      ? `Paused. ${access?.name || 'The Pi'} is holding the last picture.`
+      : `Sharing ${share.src.name} to ${access?.name || 'the Pi'}`;
+    $('#pauseBtn').textContent = share.paused ? 'Resume' : 'Pause';
   }
   syncToolbar();
 }
@@ -457,7 +477,7 @@ function startStats(s) {
       if (s.lastBytes != null) mbps = (((r.bytesSent - s.lastBytes) * 8) / ((now - s.lastTime) * 1000)).toFixed(1) + ' Mbps';
       s.lastBytes = r.bytesSent; s.lastTime = now;
       $('#stats').textContent = s.paused ? 'Picture frozen on the Pi' : [r.frameWidth && `${r.frameWidth}×${r.frameHeight}`,
-        r.framesPerSecond != null && `${Math.round(r.framesPerSecond)} fps`, mbps].filter(Boolean).join(' · ');
+        r.framesPerSecond != null && `${Math.round(r.framesPerSecond)} fps`, mbps].filter(Boolean).join(', ');
     });
   }, 2000);
 }
@@ -522,9 +542,9 @@ function showAdminPanel(s) {
     ? `Currently locked to ${s.device_name}. Choosing this moves the lock to ${computerName}.`
     : `Only ${computerName} can share or control.`;
   $('#passcodeRow').classList.toggle('hidden', s.lock !== 'passcode');
-  $('#softwareInfo').textContent = `App ${$('#appVersion').textContent} · Pi server ${state?.server?.version || ''}`
-    + ` (${state?.server?.commit || 'unknown'}) · ${state?.server?.model || 'Unknown device'}`
-    + (lowPower() ? ' · low-power mode' : '');
+  $('#softwareInfo').textContent = `This app is ${$('#appVersion').textContent}. The Pi runs server ${state?.server?.version || ''}`
+    + ` on a ${state?.server?.model || 'unknown device'}`
+    + (lowPower() ? ', in low-power mode.' : '.');
   loadStorage();
 }
 
@@ -532,8 +552,8 @@ function showAdminPanel(s) {
 
 function renderStorage(s) {
   const other = Math.max(0, s.disk_total - s.disk_free - s.uploads);
-  $('#storageText').textContent = `${s.count} file${s.count === 1 ? '' : 's'} using ${fmtBytes(s.uploads)} · `
-    + `${fmtBytes(s.disk_free)} free of ${fmtBytes(s.disk_total)}`;
+  $('#storageText').textContent = `${s.count} file${s.count === 1 ? '' : 's'} take up ${fmtBytes(s.uploads)}. `
+    + `${fmtBytes(s.disk_free)} of ${fmtBytes(s.disk_total)} is free.`;
   $('#meterUploads').style.width = (100 * s.uploads / s.disk_total) + '%';
   $('#meterOther').style.width = (100 * other / s.disk_total) + '%';
   $('#cleanDays').value = String(s.cleanup.days);

@@ -195,7 +195,7 @@ ipcMain.handle('sources:list', async () => {
       const w = Math.round(d.size.width * d.scaleFactor);
       const h = Math.round(d.size.height * d.scaleFactor);
       label = d.label || s.name;
-      detail = `${w}×${h}${d.id === primary.id ? ' · main screen' : ''}`;
+      detail = `${w}×${h}${d.id === primary.id ? ', main screen' : ''}`;
     }
     return { id: s.id, type: isScreen ? 'screen' : 'window', name: label, detail, thumbnail: s.thumbnail.toDataURL() };
   });
@@ -343,7 +343,7 @@ async function checkServerUpdate(manual) {
     type: 'info',
     title: 'Pi update available',
     message: `An update is available for the PiScreen server on your Pi`,
-    detail: `Installed: ${info.version}${info.latest_version ? `  →  New: ${info.latest_version}` : ''}\n\n` +
+    detail: `Installed: ${info.version}${info.latest_version ? `\nAvailable: ${info.latest_version}` : ''}\n\n` +
       `${changes}\n\nThe Pi will update and restart (takes a few seconds). Update now?`,
     buttons: ['Update Pi now', 'Later'],
     defaultId: 0,

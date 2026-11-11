@@ -3,27 +3,27 @@
 <head>
 <meta charset="utf-8">
 <meta http-equiv="Content-Security-Policy"
-  content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src * data: blob:; connect-src *; media-src * blob: mediastream:; frame-src http: https:">
+  content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src * data: blob:; connect-src *; media-src * blob: mediastream:; frame-src http: https:">
 <title>PiScreen</title>
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
   <!-- Left navigation -->
   <aside class="sidebar">
-    <div class="brand"><span class="logo"></span><span>PiScreen</span></div>
-    <nav id="nav">
+    <div class="brand"><span class="mark" aria-hidden="true"></span>PiScreen</div>
+    <nav id="nav" aria-label="Sections">
       <button class="nav-item active" data-view="home">
-        <svg viewBox="0 0 24 24"><path d="M3 11l9-7 9 7v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/></svg>Home</button>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 11l9-7 9 7v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/></svg>Home</button>
       <button class="nav-item" data-view="share">
-        <svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg>Share screen
-        <span id="navLive" class="live-tag hidden">LIVE</span></button>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg>Share screen
+        <span id="navLive" class="live-tag hidden">Live</span></button>
       <button class="nav-item" data-view="files">
-        <svg viewBox="0 0 24 24"><path d="M14 3H6a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8z"/><path d="M14 3v5h5M9 13h6M9 17h6"/></svg>Files &amp; remote</button>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 3H6a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8z"/><path d="M14 3v5h5M9 13h6M9 17h6"/></svg>Files and remote</button>
       <button class="nav-item" data-view="admin">
-        <svg viewBox="0 0 24 24"><path d="M12 3l8 3v6c0 4.5-3.4 8.2-8 9-4.6-.8-8-4.5-8-9V6z"/><path d="M9.5 12l1.8 1.8L15 10"/></svg>Admin</button>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l8 3v6c0 4.5-3.4 8.2-8 9-4.6-.8-8-4.5-8-9V6z"/><path d="M9.5 12l1.8 1.8L15 10"/></svg>Admin</button>
     </nav>
     <div class="side-foot">
-      <div id="updateStatus"></div>
+      <div id="updateStatus" role="status"></div>
       <button id="updatesBtn" class="side-btn">Check for updates</button>
       <div id="appVersion"></div>
     </div>
@@ -33,32 +33,32 @@
     <!-- Top bar: which screen we're connected to, plus Blank / Stop all -->
     <header class="topbar">
       <div class="room">
-        <span id="dot" class="dot"></span>
+        <span id="dot" class="dot" title="Connection"></span>
         <div class="room-text">
           <div id="roomName" class="room-name">Not connected</div>
-          <div id="roomSub" class="room-sub">Choose a screen to get started</div>
+          <div class="room-meta"><span id="roomSub">Choose a screen to get started</span><span id="roomLock" class="lock-chip hidden"></span></div>
         </div>
-        <button id="changeBtn" class="link-btn">Change screen</button>
+        <button id="changeBtn" class="link-btn"></button>
       </div>
       <div class="top-actions">
-        <button id="blankBtn" class="btn ghost" disabled>◐ Blank screen</button>
-        <button id="stopAllBtn" class="btn orange" disabled>■ Stop all</button>
+        <button id="blankBtn" class="key" disabled>Blank screen</button>
+        <button id="stopAllBtn" class="key" disabled>Stop all</button>
       </div>
     </header>
 
     <main class="content">
       <!-- Connect to a screen -->
       <section id="view-connect" class="view">
-        <div class="center-card">
+        <div class="sheet">
           <h1>Connect to a screen</h1>
-          <p class="muted">PiScreens on your network appear below.</p>
+          <p class="lede">Screens running PiScreen on your network show up here.</p>
           <ul id="found" class="found"></ul>
           <form id="connectForm" class="inline-form">
-            <input id="address" placeholder="Or type an address, e.g. 192.168.1.50" spellcheck="false" autocomplete="off">
-            <button class="btn primary" type="submit">Connect</button>
+            <input id="address" placeholder="Or type the address shown on the screen" spellcheck="false" autocomplete="off" aria-label="Screen address">
+            <button class="key primary" type="submit">Connect</button>
           </form>
           <div class="row-between">
-            <span id="setupMsg" class="muted small"></span>
+            <span id="setupMsg" class="note"></span>
             <button id="findBtn" class="link-btn">Search again</button>
           </div>
         </div>
@@ -66,48 +66,52 @@
 
       <!-- Locked -->
       <section id="view-locked" class="view hidden">
-        <form class="center-card narrow" id="unlockForm">
-          <div class="lock-badge">🔒</div>
+        <form class="sheet narrow" id="unlockForm">
+          <svg class="sheet-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>
           <h1 id="lockedTitle">This screen is locked</h1>
-          <p id="lockedText" class="muted"></p>
+          <p id="lockedText" class="lede"></p>
           <div id="unlockArea">
             <input id="unlockInput" class="code-input" type="password" inputmode="numeric" autocomplete="off" aria-label="Passcode">
-            <div id="unlockErr" class="err"></div>
-            <button class="btn primary wide" type="submit">Unlock</button>
+            <div id="unlockErr" class="err" role="alert"></div>
+            <button class="key primary wide" type="submit">Unlock</button>
           </div>
-          <button type="button" id="lockedAdminBtn" class="link-btn">I'm the admin</button>
+          <button type="button" id="lockedAdminBtn" class="link-btn">Use the admin code instead</button>
         </form>
       </section>
 
       <!-- Home -->
       <section id="view-home" class="view hidden">
         <div class="home">
-          <h1 class="hello">Share to <span id="homeName">PiScreen</span></h1>
-          <div class="tiles">
-            <button class="tile" data-go="share">
-              <span class="tile-icon blue"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg></span>
-              <span class="tile-title">Share screen</span>
-              <span class="tile-text">Mirror your screen or a window, or use the Pi as an extra monitor.</span>
-            </button>
-            <button class="tile" data-go="files">
-              <span class="tile-icon green"><svg viewBox="0 0 24 24"><path d="M12 16V4M7 9l5-5 5 5"/><path d="M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3"/></svg></span>
-              <span class="tile-title">Show a file</span>
-              <span class="tile-text">PDFs, slides, images and videos, shown fullscreen on the Pi.</span>
-            </button>
-            <button class="tile" data-go="files">
-              <span class="tile-icon purple"><svg viewBox="0 0 24 24"><rect x="7" y="2" width="10" height="20" rx="3"/><path d="M12 7v4M10 9h4"/></svg></span>
-              <span class="tile-title">Remote control</span>
-              <span class="tile-text">Change pages, rotate, blank the screen and manage the library.</span>
-            </button>
-          </div>
-
-          <div class="now card">
-            <div class="now-preview" id="nowPreview"></div>
-            <div class="now-text">
-              <div class="eyebrow">On screen now</div>
-              <div id="nowTitle" class="now-title">Welcome screen</div>
-              <div id="nowSub" class="muted"></div>
+          <section class="program" aria-label="On screen now">
+            <div class="monitor">
+              <div class="screen" id="nowPreview"></div>
+              <span id="tally" class="tally" title="Lit when something is on screen"></span>
             </div>
+            <div class="program-info">
+              <p class="program-where">On <span id="homeName">PiScreen</span> now</p>
+              <h1 id="nowTitle">Welcome screen</h1>
+              <p id="nowSub" class="lede"></p>
+            </div>
+          </section>
+
+          <div class="inputs" role="group" aria-label="Put something on screen">
+            <button class="input-key" data-go="share" data-key="share">
+              <span class="lamp" aria-hidden="true"></span>
+              <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg>
+              <span class="key-title">Share screen</span>
+              <span class="key-text">Mirror a screen or window, or use the Pi as an extra monitor.</span>
+            </button>
+            <button class="input-key" data-go="files" data-key="file">
+              <span class="lamp" aria-hidden="true"></span>
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 16V4M7 9l5-5 5 5"/><path d="M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3"/></svg>
+              <span class="key-title">Show a file</span>
+              <span class="key-text">PDFs, slides, images and videos, fullscreen on the Pi.</span>
+            </button>
+            <button class="input-key" data-go="files" data-key="remote">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="7" y="2" width="10" height="20" rx="3"/><path d="M12 7v4M10 9h4"/></svg>
+              <span class="key-title">Remote control</span>
+              <span class="key-text">Turn pages, rotate, blank the screen, manage the library.</span>
+            </button>
           </div>
         </div>
       </section>
@@ -116,130 +120,115 @@
       <section id="view-share" class="view hidden">
         <div class="share-layout">
           <div class="sources">
-            <div class="row-between">
-              <h2>Choose what to show</h2>
-              <button id="refreshSources" class="btn ghost small">↻ Refresh</button>
+            <div class="row-between flush-top">
+              <h1>Choose what to show</h1>
+              <button id="refreshSources" class="key small">Refresh list</button>
             </div>
-            <h3>Screens</h3>
+            <h2 class="group">Screens</h2>
             <div id="screens" class="grid"></div>
-            <h3>Windows</h3>
+            <h2 class="group">Windows</h2>
             <div id="windows" class="grid"></div>
           </div>
           <aside class="panel">
-            <div class="card">
-              <div id="piInfo" class="muted small">Pi screen: unknown</div>
-              <div id="lowPowerNote" class="notice hidden">This is a Raspberry Pi 3, so sharing is limited to 720p at 15 fps to keep it smooth.</div>
+            <div class="block">
+              <div id="piInfo" class="note">Pi screen: unknown</div>
+              <div id="lowPowerNote" class="notice hidden">This is a Raspberry Pi 3, so sharing is limited to 720p at 15 frames a second to keep it smooth.</div>
               <label class="field">Quality
                 <select id="quality">
-                  <option value="sharp">Sharp text · 30 fps</option>
-                  <option value="smooth">Smooth motion · 60 fps</option>
-                  <option value="light">Light (slow Wi-Fi) · 15 fps</option>
+                  <option value="sharp">Sharp text, 30 fps</option>
+                  <option value="smooth">Smooth motion, 60 fps</option>
+                  <option value="light">Light, for slow Wi-Fi (15 fps)</option>
                 </select>
               </label>
               <label class="check" id="audioRow"><input type="checkbox" id="audio"> Play computer sound on the Pi</label>
               <label class="check"><input type="checkbox" id="miniMode" checked> Shrink to a floating toolbar while sharing</label>
-              <button id="shareBtn" class="btn primary wide big" disabled>Start sharing</button>
-              <div id="shareStatus" class="muted small"></div>
+              <button id="shareBtn" class="key primary wide big" disabled>Start sharing</button>
+              <div id="shareStatus" class="note" role="status"></div>
             </div>
-            <details class="card guide">
+            <details class="block guide">
               <summary>Use the Pi as an extra monitor</summary>
-              <p>Picking your main screen <b>mirrors</b> it. To <b>extend</b> your desktop onto the Pi,
-                Windows needs a virtual display to extend onto:</p>
+              <p>Choosing your main screen mirrors it. To extend your desktop onto the Pi instead, Windows needs a virtual display to extend onto:</p>
               <ol>
                 <li>Install the free <a href="https://github.com/VirtualDrivers/Virtual-Display-Driver/releases" target="_blank">Virtual Display Driver</a>.</li>
-                <li>In <b>Settings → System → Display</b>, choose <b>Extend these displays</b> and set the new display to <b id="piRes">the Pi's resolution</b>.</li>
-                <li>Click <b>Refresh</b>, pick the new screen and press <b>Start sharing</b>.</li>
+                <li>In Settings, System, Display, choose <b>Extend these displays</b> and set the new display to <b id="piRes">the Pi's resolution</b>.</li>
+                <li>Refresh the list here, pick the new screen and start sharing.</li>
               </ol>
             </details>
           </aside>
         </div>
       </section>
 
-      <!-- Files & remote (the Pi's own remote page) -->
+      <!-- Files and remote (the Pi's own remote page) -->
       <section id="view-files" class="view hidden flush">
         <iframe id="remoteFrame" title="PiScreen remote"></iframe>
       </section>
 
       <!-- Admin -->
       <section id="view-admin" class="view hidden">
-        <form id="adminLogin" class="center-card narrow">
-          <div class="lock-badge">🛡</div>
+        <form id="adminLogin" class="sheet narrow">
+          <svg class="sheet-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l8 3v6c0 4.5-3.4 8.2-8 9-4.6-.8-8-4.5-8-9V6z"/></svg>
           <h1>Admin</h1>
-          <p class="muted">Enter the admin code to manage this screen.</p>
+          <p class="lede">Enter the admin code to manage this screen.</p>
           <input id="adminCode" class="code-input" type="password" inputmode="numeric" autocomplete="off" aria-label="Admin code">
           <div class="keypad" id="keypad">
             <button type="button">1</button><button type="button">2</button><button type="button">3</button>
             <button type="button">4</button><button type="button">5</button><button type="button">6</button>
             <button type="button">7</button><button type="button">8</button><button type="button">9</button>
-            <button type="button" data-k="clear">Clear</button><button type="button">0</button><button type="button" data-k="back">⌫</button>
+            <button type="button" data-k="clear">Clear</button><button type="button">0</button><button type="button" data-k="back" aria-label="Delete">⌫</button>
           </div>
-          <div id="adminErr" class="err"></div>
-          <button class="btn primary wide" type="submit">Continue</button>
+          <div id="adminErr" class="err" role="alert"></div>
+          <button class="key primary wide" type="submit">Open admin</button>
         </form>
 
         <div id="adminPanel" class="admin hidden">
-          <div class="row-between">
+          <div class="row-between flush-top">
             <h1>Admin</h1>
-            <button id="adminSignOut" class="btn ghost small">Sign out of admin</button>
+            <button id="adminSignOut" class="key small">Sign out of admin</button>
           </div>
 
-          <div class="card">
+          <section class="block">
             <h2>Screen name</h2>
-            <p class="muted small">Shown on the Pi's welcome screen and in the app.</p>
+            <p class="note">Shown on the Pi's welcome screen, here, and on phones.</p>
             <div class="inline-form">
-              <input id="nameInput" maxlength="40">
-              <button id="saveName" class="btn primary" type="button">Save</button>
+              <input id="nameInput" maxlength="40" aria-label="Screen name">
+              <button id="saveName" class="key primary" type="button">Save name</button>
             </div>
-          </div>
+          </section>
 
-          <div class="card">
+          <section class="block">
             <h2>Who can use this screen</h2>
             <div class="options" id="lockOptions">
               <label class="option">
                 <input type="radio" name="lock" value="off">
-                <span class="opt-icon">🌐</span>
-                <span><b>Anyone on the network</b><br><span class="muted small">No passcode needed.</span></span>
+                <span><b>Anyone on the network</b><span class="note">No passcode needed.</span></span>
               </label>
               <label class="option">
                 <input type="radio" name="lock" value="passcode">
-                <span class="opt-icon">🔢</span>
-                <span><b>Passcode</b><br><span class="muted small">People must enter your passcode to share or control.</span></span>
+                <span><b>Anyone with the passcode</b><span class="note">Phones and other computers enter it before sharing or controlling.</span></span>
               </label>
               <label class="option">
                 <input type="radio" name="lock" value="device">
-                <span class="opt-icon">💻</span>
-                <span><b>Only this computer</b><br><span class="muted small" id="thisComputer">Nobody else can share or control.</span></span>
+                <span><b>Only this computer</b><span class="note" id="thisComputer">Nobody else can share or control.</span></span>
               </label>
             </div>
             <div id="passcodeRow" class="inline-form hidden">
-              <input id="newPasscode" type="password" inputmode="numeric" placeholder="New passcode (at least 4 characters)" autocomplete="new-password">
+              <input id="newPasscode" type="password" inputmode="numeric" placeholder="New passcode, at least 4 characters" autocomplete="new-password" aria-label="New passcode">
             </div>
             <div class="row-between">
-              <span id="lockMsg" class="muted small"></span>
-              <button id="applyLock" class="btn primary" type="button">Apply</button>
+              <span id="lockMsg" class="note" role="status"></span>
+              <button id="applyLock" class="key primary" type="button">Apply</button>
             </div>
-          </div>
+          </section>
 
-          <div class="card">
-            <h2>Admin code</h2>
-            <p class="muted small">Change the code used to open this Admin page.</p>
-            <div class="inline-form">
-              <input id="newAdminCode" type="password" inputmode="numeric" placeholder="New admin code" autocomplete="new-password">
-              <input id="newAdminCode2" type="password" inputmode="numeric" placeholder="Repeat it" autocomplete="new-password">
-              <button id="saveAdminCode" class="btn" type="button">Change</button>
-            </div>
-            <div id="codeMsg" class="muted small"></div>
-          </div>
-
-          <div class="card">
+          <section class="block">
             <h2>Storage</h2>
-            <p class="muted small" id="storageText">Checking…</p>
-            <div class="meter"><span id="meterUploads"></span><span id="meterOther"></span></div>
-            <div class="meter-legend small muted">
+            <p class="note" id="storageText">Checking…</p>
+            <div class="meter" aria-hidden="true"><span id="meterUploads"></span><span id="meterOther"></span></div>
+            <div class="meter-legend note">
               <span><i class="sw uploads"></i>PiScreen files</span><span><i class="sw other"></i>Everything else</span><span><i class="sw free"></i>Free</span>
             </div>
             <div class="form-grid">
-              <label class="field">Delete files that haven't been shown for
+              <label class="field">Delete files not shown for
                 <select id="cleanDays">
                   <option value="0">Never</option>
                   <option value="1">1 day</option>
@@ -257,36 +246,47 @@
                 </select>
               </label>
             </div>
-            <p class="muted small">The file on screen and files still converting are never deleted. The least recently shown files go first.</p>
+            <p class="note">The file on screen and files still converting are never deleted. The least recently shown go first.</p>
             <div class="row-between">
-              <span id="storageMsg" class="muted small"></span>
+              <span id="storageMsg" class="note" role="status"></span>
               <span class="btn-row">
-                <button id="clearAll" class="btn ghost danger-text" type="button">Delete all files</button>
-                <button id="cleanNow" class="btn" type="button">Clean up now</button>
-                <button id="saveCleanup" class="btn primary" type="button">Save</button>
+                <button id="clearAll" class="key danger" type="button">Delete all files</button>
+                <button id="cleanNow" class="key" type="button">Clean up now</button>
+                <button id="saveCleanup" class="key primary" type="button">Save rules</button>
               </span>
             </div>
-          </div>
+          </section>
 
-          <div class="card">
+          <section class="block">
+            <h2>Admin code</h2>
+            <p class="note">The code that opens this page.</p>
+            <div class="inline-form">
+              <input id="newAdminCode" type="password" inputmode="numeric" placeholder="New admin code" autocomplete="new-password" aria-label="New admin code">
+              <input id="newAdminCode2" type="password" inputmode="numeric" placeholder="Repeat it" autocomplete="new-password" aria-label="Repeat the new admin code">
+              <button id="saveAdminCode" class="key" type="button">Change code</button>
+            </div>
+            <div id="codeMsg" class="note" role="status"></div>
+          </section>
+
+          <section class="block">
             <h2>Software</h2>
-            <p class="muted small" id="softwareInfo"></p>
-            <button id="adminUpdates" class="btn" type="button">Check for updates</button>
-          </div>
+            <p class="note" id="softwareInfo"></p>
+            <button id="adminUpdates" class="key" type="button">Check for updates</button>
+          </section>
         </div>
       </section>
     </main>
 
     <!-- Bottom bar while sharing -->
     <footer id="shareBar" class="sharebar hidden">
-      <span class="live-dot"></span>
+      <span class="tally live" aria-hidden="true"></span>
       <div class="share-text">
         <div id="shareBarTitle">Sharing</div>
-        <div id="stats" class="small mono"></div>
+        <div id="stats"></div>
       </div>
-      <button id="pauseBtn" class="btn dark">❚❚ Pause</button>
-      <button id="miniBtn" class="btn dark">⇲ Floating toolbar</button>
-      <button id="stopShareBtn" class="btn orange">■ Stop sharing</button>
+      <button id="pauseBtn" class="key on-dark">Pause</button>
+      <button id="miniBtn" class="key on-dark">Floating toolbar</button>
+      <button id="stopShareBtn" class="key stop">Stop sharing</button>
     </footer>
   </div>
 

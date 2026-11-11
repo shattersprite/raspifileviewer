@@ -3,159 +3,172 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="theme-color" content="#0f1115">
+<meta name="theme-color" content="#1e2226">
 <title>PiScreen Remote</title>
 <style>
+  /* Phone remote: same AV-panel language as the desktop app. Red only means live. */
+  @font-face { font-family: "Archivo"; src: url("/static/fonts/archivo.woff2") format("woff2");
+    font-weight: 100 900; font-stretch: 62% 125%; font-display: swap; }
   :root {
-    --bg: #f4f5f7; --card: #ffffff; --fg: #15171c; --muted: #6b7080; --line: #e3e5ea;
-    --accent: #2f6fed; --accent-fg: #fff; --danger: #d43b3b; --btn: #eef0f4; --ok: #22a35a;
+    --chassis: #e8eaec; --panel: #f6f7f8; --well: #dde0e4; --ink: #1e2226; --slate: #5e6873; --rule: #cdd2d7;
+    --key: #ffffff; --key-edge: #b9c0c7; --primary: #1e2226; --primary-ink: #f6f7f8;
+    --tally: #e0352b; --signal: #2e9e62; --amber: #f2a40c; --bezel: #121416;
+    color-scheme: light;
   }
   @media (prefers-color-scheme: dark) {
-    :root { --bg: #0f1115; --card: #181b22; --fg: #eceef2; --muted: #8d93a3; --line: #262a33;
-      --accent: #5b8fff; --btn: #232731; --danger: #ff6b6b; --ok: #3ccf7c; }
+    :root { --chassis: #16181b; --panel: #1f2226; --well: #111315; --ink: #e6e8ea; --slate: #8b949d; --rule: #2d3137;
+      --key: #2a2e33; --key-edge: #0c0d0f; --primary: #e6e8ea; --primary-ink: #16181b; --bezel: #050607; color-scheme: dark; }
   }
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
-  body { margin: 0; background: var(--bg); color: var(--fg);
-    font: 15px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
-  main { max-width: 760px; margin: 0 auto; padding: 12px 16px 48px; }
-  header { display: flex; align-items: center; gap: 10px; padding: 6px 0 12px; }
-  header h1 { font-size: 20px; margin: 0; font-weight: 700; letter-spacing: -0.01em; flex: 1; }
-  .conn { font-size: 12px; color: var(--muted); display: flex; align-items: center; gap: 6px; }
-  .conn::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--danger); }
-  .conn.on::before { background: var(--ok); }
+  body { margin: 0; background: var(--chassis); color: var(--ink);
+    font: 400 15px/1.5 "Archivo", system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
+  :focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+  main { max-width: 720px; margin: 0 auto; padding: 14px 16px 48px; }
+  header { display: flex; align-items: center; gap: 10px; padding: 4px 0 14px; }
+  header h1 { font-size: 22px; line-height: 1.15; margin: 0; font-weight: 800; font-stretch: 122%; letter-spacing: -0.01em; flex: 1; overflow-wrap: anywhere; }
+  .conn { font-size: 12px; color: var(--slate); display: flex; align-items: center; gap: 6px; white-space: nowrap; }
+  .conn::before { content: ""; width: 9px; height: 9px; border-radius: 50%; background: var(--key-edge); }
+  .conn.on::before { background: var(--signal); box-shadow: 0 0 0 3px rgba(46,158,98,.2); }
 
-  .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 14px; margin-bottom: 14px; }
-  .card h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 0 0 10px; font-weight: 600; }
+  .card { background: var(--panel); border: 1px solid var(--rule); border-radius: 10px; padding: 14px; margin-bottom: 12px; }
+  .card h2 { font-size: 16px; font-weight: 650; margin: 0 0 10px; }
 
-  button { font: inherit; color: var(--fg); background: var(--btn); border: 0; border-radius: 10px;
-    padding: 10px 12px; cursor: pointer; min-height: 44px; touch-action: manipulation; }
-  button:active { transform: scale(.97); }
-  button.primary { background: var(--accent); color: var(--accent-fg); }
-  button.on { background: var(--accent); color: var(--accent-fg); }
-  button.danger { color: var(--danger); }
-  button:disabled { opacity: .4; }
+  button { font: inherit; font-weight: 600; font-stretch: 92%; color: var(--ink); background: var(--key);
+    border: 1px solid var(--key-edge); border-bottom-width: 3px; border-radius: 6px;
+    padding: 9px 12px 8px; cursor: pointer; min-height: 46px; touch-action: manipulation; }
+  button:active { transform: translateY(2px); border-bottom-width: 1px; margin-bottom: 2px; }
+  button.primary { background: var(--primary); color: var(--primary-ink); border-color: var(--primary); border-bottom-color: #000; }
+  button.on { background: var(--amber); color: #1e1404; border-color: #b97c06; }
+  button.danger { background: var(--tally); color: #fff; border-color: #a5231b; }
+  button:disabled { opacity: .35; }
 
-  /* Now showing */
-  #preview { position: relative; aspect-ratio: 16 / 9; background: #000; border-radius: 10px; overflow: hidden;
+  /* The monitor: what's on the Pi right now */
+  .monitor { position: relative; background: var(--bezel); border-radius: 10px; padding: 9px 9px 22px; }
+  #preview { position: relative; aspect-ratio: 16 / 9; background: #0b0d0f; border-radius: 2px; overflow: hidden;
     display: flex; align-items: center; justify-content: center; touch-action: pan-y; user-select: none; }
   #preview img { max-width: 100%; max-height: 100%; object-fit: contain; transition: transform .2s; }
-  #preview .ph { color: #9aa0ad; font-size: 14px; text-align: center; padding: 20px; }
-  #preview .badge { position: absolute; top: 8px; left: 8px; background: rgba(0,0,0,.65); color: #fff;
-    font-size: 12px; padding: 3px 8px; border-radius: 6px; }
-  #nowName { font-weight: 600; margin: 10px 0 2px; overflow-wrap: anywhere; }
-  #nowSub { color: var(--muted); font-size: 13px; }
+  #preview .ph { color: #8b949d; font-size: 14px; text-align: center; padding: 20px; }
+  #preview .badge { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+    background: rgba(0,0,0,.72); color: #e6e8ea; font-weight: 650; }
+  .tally { position: absolute; right: 11px; bottom: 6px; width: 9px; height: 9px; border-radius: 50%; background: #4a5057; }
+  .tally.live { background: var(--tally); box-shadow: 0 0 0 3px rgba(224,53,43,.25), 0 0 12px rgba(224,53,43,.7); }
+  #nowName { font-size: 18px; font-weight: 700; margin: 12px 0 0; overflow-wrap: anywhere; }
+  #nowSub { color: var(--slate); font-size: 13px; }
 
-  .nav { display: grid; grid-template-columns: 1fr auto 1fr; gap: 8px; margin-top: 12px; align-items: center; }
-  .nav .big { min-height: 64px; font-size: 22px; font-weight: 600; }
+  .nav { display: grid; grid-template-columns: 1fr auto 1fr; gap: 8px; margin-top: 12px; align-items: stretch; }
+  .nav .big { min-height: 68px; font-size: 20px; font-stretch: 88%; }
   .goto { display: flex; gap: 6px; align-items: center; }
-  .goto input { width: 64px; min-height: 44px; border-radius: 10px; border: 1px solid var(--line);
-    background: var(--bg); color: var(--fg); font: inherit; text-align: center; font-variant-numeric: tabular-nums; }
+  .goto input { width: 62px; min-height: 46px; border-radius: 6px; border: 1px solid var(--rule); background: var(--well);
+    color: var(--ink); font: 600 17px/1 inherit; text-align: center; font-variant-numeric: tabular-nums; }
   .tools { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
   .tools button { flex: 1 1 auto; }
 
-  #pages { display: grid; grid-template-columns: repeat(auto-fill, minmax(84px, 1fr)); gap: 8px;
-    max-height: 340px; overflow-y: auto; padding: 2px; }
-  #pages button { padding: 0; min-height: 0; background: #000; border-radius: 8px; overflow: hidden;
-    position: relative; aspect-ratio: 3 / 4; outline: 2px solid transparent; outline-offset: 1px; }
-  #pages button.cur { outline-color: var(--accent); }
+  #pages { display: grid; grid-template-columns: repeat(auto-fill, minmax(80px, 1fr)); gap: 8px;
+    max-height: 340px; overflow-y: auto; padding: 3px; }
+  #pages button { padding: 0; min-height: 0; background: #0b0d0f; border: 0; border-radius: 4px; overflow: hidden;
+    position: relative; aspect-ratio: 3 / 4; outline: 3px solid transparent; outline-offset: 1px; margin: 0; }
+  #pages button:active { transform: none; }
+  #pages button.cur { outline-color: var(--amber); }
   #pages img { width: 100%; height: 100%; object-fit: contain; display: block; }
-  #pages span { position: absolute; bottom: 3px; right: 4px; font-size: 11px; color: #fff;
-    background: rgba(0,0,0,.6); border-radius: 4px; padding: 0 5px; }
+  #pages span { position: absolute; bottom: 3px; right: 3px; font-size: 11px; font-weight: 700; color: #fff;
+    background: rgba(0,0,0,.7); border-radius: 3px; padding: 0 5px; font-variant-numeric: tabular-nums; }
 
   /* Upload */
-  #drop { border: 2px dashed var(--line); border-radius: 12px; padding: 22px 14px; text-align: center;
-    cursor: pointer; transition: border-color .15s, background .15s; }
-  #drop.over { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 8%, transparent); }
-  #drop strong { display: block; font-size: 16px; margin-bottom: 4px; }
-  #drop small { color: var(--muted); }
+  #drop { border: 2px dashed var(--key-edge); border-radius: 8px; padding: 22px 14px; text-align: center; cursor: pointer; background: var(--chassis); }
+  #drop.over { border-color: var(--amber); border-style: solid; }
+  #drop strong { display: block; font-size: 17px; font-weight: 700; margin-bottom: 2px; }
+  #drop small { color: var(--slate); font-size: 13px; }
   .row { display: flex; align-items: center; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
-  .row label { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 14px; }
-  #progress { height: 6px; background: var(--btn); border-radius: 3px; overflow: hidden; margin-top: 10px; display: none; }
-  #progress div { height: 100%; width: 0; background: var(--accent); transition: width .15s; }
-  #uploadMsg { font-size: 13px; color: var(--muted); margin-top: 6px; min-height: 1em; }
+  .row label { display: flex; align-items: center; gap: 8px; color: var(--slate); font-size: 14px; }
+  .row input { accent-color: var(--ink); width: 17px; height: 17px; }
+  #progress { height: 8px; background: var(--well); border-radius: 2px; overflow: hidden; margin-top: 10px; display: none; }
+  #progress div { height: 100%; width: 0; background: var(--amber); transition: width .15s; }
+  #uploadMsg { font-size: 13px; color: var(--slate); margin-top: 6px; min-height: 1em; }
 
   /* Library */
   #library { list-style: none; margin: 0; padding: 0; }
-  #library li { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-top: 1px solid var(--line); }
-  #library li:first-child { border-top: 0; }
-  #library .thumb { width: 56px; height: 42px; flex: none; border-radius: 6px; background: #000; overflow: hidden;
-    display: flex; align-items: center; justify-content: center; color: #9aa0ad; font-size: 11px; font-weight: 600; }
+  #library li { display: flex; align-items: center; gap: 10px; padding: 9px 0; border-top: 1px solid var(--rule); }
+  #library li:first-child { border-top: 0; padding-top: 0; }
+  #library .thumb { width: 58px; height: 40px; flex: none; border-radius: 3px; background: #0b0d0f; overflow: hidden;
+    display: flex; align-items: center; justify-content: center; color: #8b949d; font-size: 11px; font-weight: 700; font-stretch: 80%; }
   #library .thumb img { width: 100%; height: 100%; object-fit: cover; }
   #library .meta { flex: 1; min-width: 0; }
-  #library .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; }
-  #library .sub { font-size: 12px; color: var(--muted); }
-  #library .sub.err { color: var(--danger); }
-  #library li.cur .name { color: var(--accent); }
-  #library button { min-height: 38px; padding: 6px 12px; }
-  .empty { color: var(--muted); font-size: 14px; text-align: center; padding: 10px 0; }
+  #library .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+  #library .sub { font-size: 12px; color: var(--slate); }
+  #library .sub.err { color: var(--tally); }
+  #library li.cur .thumb { outline: 3px solid var(--amber); outline-offset: 1px; }
+  #library button { min-height: 40px; padding: 5px 12px 4px; }
+  #library button.danger { background: var(--key); color: var(--tally); border-color: var(--key-edge); }
+  .empty { color: var(--slate); font-size: 14px; padding: 6px 0; }
   .hidden { display: none !important; }
-  .pill { font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 99px; background: var(--btn); color: var(--muted); }
+  .pill { font-size: 12px; font-weight: 600; padding: 1px 7px; border-radius: 3px; border: 1px solid var(--rule); white-space: nowrap; }
 
   /* Lock screen */
-  #lockScreen { position: fixed; inset: 0; z-index: 50; background: var(--bg); display: flex; align-items: center;
+  #lockScreen { position: fixed; inset: 0; z-index: 50; background: var(--chassis); display: flex; align-items: center;
     justify-content: center; padding: 24px 16px; }
-  .lock-card { width: min(380px, 100%); background: var(--card); border: 1px solid var(--line); border-radius: 18px;
-    padding: 28px 22px; text-align: center; }
-  .lock-icon { width: 56px; height: 56px; border-radius: 16px; margin: 0 auto 14px; display: flex; align-items: center;
-    justify-content: center; font-size: 26px; background: color-mix(in srgb, var(--accent) 14%, transparent); }
-  .lock-card h2 { margin: 0 0 4px; font-size: 20px; }
-  .lock-card p { margin: 0 0 18px; color: var(--muted); }
-  #passInput { width: 100%; min-height: 52px; font: 600 22px/1 inherit; letter-spacing: .3em; text-align: center;
-    border-radius: 12px; border: 1px solid var(--line); background: var(--bg); color: var(--fg); }
-  #lockErr { color: var(--danger); font-size: 13px; min-height: 18px; margin: 8px 0; }
-  .lock-card button { width: 100%; min-height: 48px; }
+  .lock-card { width: min(360px, 100%); text-align: center; }
+  .lock-icon { width: 34px; height: 34px; fill: none; stroke: var(--ink); stroke-width: 1.7; margin-bottom: 8px; }
+  .lock-card h2 { margin: 0 0 6px; font-size: 24px; font-weight: 800; font-stretch: 115%; line-height: 1.15; }
+  .lock-card p { margin: 0 0 18px; color: var(--slate); }
+  #passInput { width: 100%; min-height: 56px; font: 700 24px/1 inherit; letter-spacing: .35em; text-align: center;
+    border-radius: 6px; border: 1px solid var(--rule); background: var(--well); color: var(--ink); }
+  #lockErr { color: var(--tally); font-size: 13px; min-height: 20px; margin: 8px 0; }
+  .lock-card button { width: 100%; min-height: 50px; }
 </style>
 </head>
 <body>
 <main>
   <header>
     <h1 id="screenTitle">PiScreen</h1>
-    <span id="lockPill" class="pill hidden">🔒 Locked</span>
-    <span class="conn" id="conn">Connecting…</span>
+    <span id="lockPill" class="pill hidden">Locked</span>
+    <span class="conn" id="conn" role="status">Connecting…</span>
   </header>
 
   <div id="lockScreen" class="hidden">
     <form class="lock-card" id="lockForm">
-      <div class="lock-icon">🔒</div>
+      <svg class="lock-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>
       <h2 id="lockTitle">PiScreen is locked</h2>
       <p id="lockText">Enter the passcode to control this screen.</p>
       <div id="passArea">
         <input id="passInput" type="password" inputmode="numeric" autocomplete="off" aria-label="Passcode">
-        <div id="lockErr"></div>
+        <div id="lockErr" role="alert"></div>
         <button class="primary" type="submit">Unlock</button>
       </div>
     </form>
   </div>
 
-  <section class="card">
-    <h2>On screen</h2>
-    <div id="preview"><div class="ph">Nothing is showing.<br>Upload a file or pick one from the library.</div></div>
+  <section class="card" aria-label="On screen now">
+    <div class="monitor">
+      <div id="preview"><div class="ph">Nothing is showing.<br>Upload a file or pick one from the library.</div></div>
+      <span id="tally" class="tally"></span>
+    </div>
     <div id="nowName"></div>
     <div id="nowSub"></div>
 
     <div id="pdfNav" class="nav hidden">
-      <button class="big" data-act="prev" aria-label="Previous page">‹ Prev</button>
+      <button class="big" data-act="prev" aria-label="Previous page">Back</button>
       <div class="goto">
         <input id="pageInput" type="number" inputmode="numeric" min="1" aria-label="Page number">
         <button id="gotoBtn">Go</button>
       </div>
-      <button class="big primary" data-act="next" aria-label="Next page">Next ›</button>
+      <button class="big primary" data-act="next" aria-label="Next page">Next</button>
     </div>
 
     <div id="videoNav" class="tools hidden">
-      <button data-act="seek" data-delta="-10">⏪ 10s</button>
+      <button data-act="seek" data-delta="-10">Back 10 s</button>
       <button id="playBtn" class="primary" data-act="play">Pause</button>
-      <button data-act="seek" data-delta="10">10s ⏩</button>
-      <button data-act="restart">⏮ Restart</button>
+      <button data-act="seek" data-delta="10">Forward 10 s</button>
+      <button data-act="restart">Restart</button>
       <button id="muteBtn" data-act="mute">Mute</button>
       <button id="loopBtn" data-act="loop">Loop</button>
     </div>
 
     <div id="viewTools" class="tools hidden">
       <button id="fitBtn" data-act="fit">Fit: whole</button>
-      <button data-act="rotate">⟳ Rotate</button>
-      <button id="scrollUp" data-act="scroll" data-delta="-0.5" class="hidden">▲ Up</button>
-      <button id="scrollDown" data-act="scroll" data-delta="0.5" class="hidden">▼ Down</button>
+      <button data-act="rotate">Rotate</button>
+      <button id="scrollUp" data-act="scroll" data-delta="-0.5" class="hidden">Scroll up</button>
+      <button id="scrollDown" data-act="scroll" data-delta="0.5" class="hidden">Scroll down</button>
       <button id="blankBtn" data-act="blank">Blank screen</button>
       <button class="danger" data-act="stop">Stop</button>
     </div>
@@ -169,14 +182,14 @@
   <section class="card">
     <h2>Upload</h2>
     <div id="drop" role="button" tabindex="0">
-      <strong>Tap to choose files</strong>
-      <small>or drop them here · PDF, images, video, PowerPoint/Word</small>
+      <strong>Choose files</strong>
+      <small>or drop them here. PDFs, images, videos, slides and documents.</small>
     </div>
     <input id="fileInput" type="file" multiple class="hidden"
       accept=".pdf,image/*,video/*,.ppt,.pptx,.pps,.ppsx,.odp,.doc,.docx,.odt,.rtf,.xls,.xlsx,.ods">
     <div class="row"><label><input type="checkbox" id="showNow" checked> Show on screen right away</label></div>
     <div id="progress"><div></div></div>
-    <div id="uploadMsg"></div>
+    <div id="uploadMsg" role="status"></div>
   </section>
 
   <section class="card">
@@ -206,7 +219,7 @@ const thumbOf = (item, n = 1) => item.kind === 'pdf'
 
 function fmtSize(n) {
   if (!n) return '';
-  return n >= 1024 ** 3 ? ` · ${(n / 1024 ** 3).toFixed(1)} GB` : ` · ${Math.max(1, Math.round(n / 1024 ** 2))} MB`;
+  return n >= 1024 ** 3 ? `, ${(n / 1024 ** 3).toFixed(1)} GB` : `, ${Math.max(1, Math.round(n / 1024 ** 2))} MB`;
 }
 
 function statusText(item) {
@@ -220,9 +233,10 @@ function statusText(item) {
 
 function renderStream(v) {
   const prev = $('#preview');
-  prev.innerHTML = `<div class="ph">🖥 Showing a computer screen<br>${esc(v.stream.source)}</div>`;
-  $('#nowName').textContent = 'Screen sharing';
-  $('#nowSub').textContent = 'From the PiScreen desktop app';
+  prev.innerHTML = '<div class="ph">Live from a computer</div>';
+  $('#tally').classList.toggle('live', !v.blank);
+  $('#nowName').textContent = v.stream.source;
+  $('#nowSub').textContent = 'A computer is sharing its screen with the PiScreen app.';
   ['#pdfNav', '#videoNav', '#pagesCard', '#scrollUp', '#scrollDown', '#fitBtn', '[data-act=rotate]']
     .forEach((s) => $(s).classList.add('hidden'));
   $('#viewTools').classList.remove('hidden');
@@ -243,12 +257,13 @@ function render() {
   let src = null;
   if (isPdf && v.page <= item.ready_pages) src = `/media/${item.id}/page-${pad(v.page)}.jpg`;
   else if (item && item.kind === 'image') src = `/media/${item.id}/source${item.ext}`;
-  const badge = v.blank ? '<span class="badge">Screen blanked</span>' : '';
+  const badge = v.blank ? '<span class="badge">Blanked</span>' : '';
+  $('#tally').classList.toggle('live', !!item && !v.blank);
   if (!item) prev.innerHTML = '<div class="ph">Nothing is showing.<br>Upload a file or pick one from the library.</div>';
   else if (src) {
     const img = prev.querySelector('img');
     if (!img || img.getAttribute('src') !== src) prev.innerHTML = `<img src="${src}" alt="">`;
-  } else prev.innerHTML = `<div class="ph">${isVideo ? '▶ Playing video' : 'Preparing page ' + v.page + '…'}</div>`;
+  } else prev.innerHTML = `<div class="ph">${isVideo ? (v.playing ? 'Playing a video' : 'Video paused') : 'Preparing page ' + v.page + '…'}</div>`;
   prev.querySelector('.badge')?.remove();
   if (badge) prev.insertAdjacentHTML('beforeend', badge);
   const pimg = prev.querySelector('img');
@@ -256,7 +271,7 @@ function render() {
 
   $('#nowName').textContent = item ? item.name : '';
   $('#nowSub').textContent = !item ? '' : isPdf
-    ? `Page ${v.page} of ${item.pages}` + (item.status === 'processing' ? ` · preparing ${item.ready_pages}/${item.pages}` : '')
+    ? `Page ${v.page} of ${item.pages}` + (item.status === 'processing' ? `, ${item.ready_pages} ready so far` : '')
     : statusText(item);
 
   $('#pdfNav').classList.toggle('hidden', !isPdf);
@@ -269,7 +284,7 @@ function render() {
     $('#pdfNav [data-act=prev]').disabled = v.page <= 1;
     $('#pdfNav [data-act=next]').disabled = v.page >= item.pages;
   }
-  $('#playBtn').textContent = v.playing ? '❚❚ Pause' : '▶ Play';
+  $('#playBtn').textContent = v.playing ? 'Pause' : 'Play';
   $('#muteBtn').classList.toggle('on', v.muted);
   $('#muteBtn').textContent = v.muted ? 'Muted' : 'Mute';
   $('#loopBtn').classList.toggle('on', v.loop);
@@ -307,7 +322,7 @@ function renderLibrary(v) {
     libKey = lkey;
     $('#library').innerHTML = S.items.length ? S.items.map((it) => {
       const t = thumbOf(it);
-      const label = it.kind === 'video' ? '▶' : (it.ext || '').slice(1).toUpperCase();
+      const label = (it.ext || '').slice(1).toUpperCase();
       return `<li class="${it.id === v.item ? 'cur' : ''}">
         <div class="thumb">${t ? `<img loading="lazy" src="${t}" alt="">` : label}</div>
         <div class="meta"><div class="name">${esc(it.name)}</div>
@@ -396,6 +411,7 @@ async function checkAccess() {
   $('#screenTitle').textContent = a.name;
   document.title = a.name + ' Remote';
   $('#lockPill').classList.toggle('hidden', a.lock === 'off');
+  $('#lockPill').textContent = a.lock === 'passcode' ? 'Passcode lock' : 'One computer only';
   if (a.access) { $('#lockScreen').classList.add('hidden'); return true; }
   if (events) { events.close(); events = null; }
   $('#lockTitle').textContent = `${a.name} is locked`;
