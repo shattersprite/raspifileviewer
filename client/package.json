@@ -1,7 +1,7 @@
 {
   "name": "piscreen-client",
   "productName": "PiScreen",
-  "version": "1.4.0",
+  "version": "1.4.1",
   "description": "Send files and your screen to a Raspberry Pi running PiScreen",
   "author": "shattersprite",
   "license": "MIT",
@@ -24,15 +24,23 @@
     "files": [
       "main.js",
       "preload.js",
-      "renderer/**/*"
+      "renderer/**/*",
+      "build/icon.png"
     ],
     "win": {
       "target": "nsis",
-      "artifactName": "PiScreen-Setup-${version}.${ext}"
+      "artifactName": "PiScreen-Setup-${version}.${ext}",
+      "icon": "build/icon.ico"
     },
     "nsis": {
       "oneClick": false,
-      "allowToChangeInstallationDirectory": true
+      "allowToChangeInstallationDirectory": true,
+      "installerIcon": "build/icon.ico",
+      "uninstallerIcon": "build/icon.ico",
+      "installerHeaderIcon": "build/icon.ico",
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "PiScreen"
     },
     "publish": [
       {
@@ -41,7 +49,10 @@
         "repo": "raspifileviewer",
         "releaseType": "draft"
       }
-    ]
+    ],
+    "directories": {
+      "buildResources": "build"
+    }
   },
   "allowScripts": {
     "electron@45.2.3": true

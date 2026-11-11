@@ -3,3 +3,4 @@ __pycache__/
 .venv/
 client/node_modules/
 client/dist/
+client/build/icon-preview.png

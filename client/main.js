@@ -52,6 +52,7 @@ function piHeaders() {
 
 function createWindow() {
   win = new BrowserWindow({
+    icon: path.join(__dirname, 'build', 'icon.png'),
     width: 1100,
     height: 780,
     minWidth: 720,
