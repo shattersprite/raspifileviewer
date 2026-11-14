@@ -548,21 +548,85 @@ function waitForIce(pc) {
   });
 }
 
+// ---- When the Pi reports a problem with the picture ----
+// The Pi watches the start of each share and tells us what it sees. We adapt:
+//   no-decode: try another video format (H.264 is hardware-decoded on a Pi 4), then a lower resolution
+//   no-render: the Pi switched to drawing frames itself; nothing to do here
+//   no-media:  nothing reaches the Pi, which is a network problem we can only explain
+const CODEC_ORDER = ['VP8', 'H264', 'VP9'];
+
+function canSend(codec) {
+  const caps = RTCRtpSender.getCapabilities && RTCRtpSender.getCapabilities('video');
+  return !!caps && caps.codecs.some((c) => c.mimeType.toUpperCase() === 'VIDEO/' + codec);
+}
+
+function preferCodec(pc, codec) {
+  const tr = pc.getTransceivers().find((t) => t.receiver.track && t.receiver.track.kind === 'video');
+  const caps = RTCRtpSender.getCapabilities && RTCRtpSender.getCapabilities('video');
+  if (!tr || !caps || !tr.setCodecPreferences) return;
+  const want = 'VIDEO/' + codec;
+  const score = (c) => {
+    if (c.mimeType.toUpperCase() !== want) return 2;
+    // For H.264 prefer constrained baseline with packetization-mode=1, which the Pi decodes in hardware.
+    const f = c.sdpFmtpLine || '';
+    return codec === 'H264' && !(/packetization-mode=1/.test(f) && /profile-level-id=42e0/i.test(f)) ? 1 : 0;
+  };
+  try { tr.setCodecPreferences([...caps.codecs].sort((a, b) => score(a) - score(b))); } catch (err) { console.warn(err); }
+}
+
+function handleDiag(s, d) {
+  if (!d) return;
+  const name = access?.name || 'The Pi';
+  $('#diagInfo').textContent = `${name} reports: ${[d.codec || 'no video yet', d.decoder && `${d.decoder} decoder`,
+    `${d.packets} packets`, `${d.decoded} frames`, d.canvas && 'canvas drawing'].filter(Boolean).join(', ')}.`;
+  if (d.problem === 'ok') {
+    s.diagOk = true;
+    s.fallbackNote = null;
+    shareStatus(`Live on ${name}`, true);
+  } else if (d.problem === 'no-render') {
+    shareStatus(`${name} couldn't draw the video normally, so it switched to its compatibility mode.`);
+  } else if (d.problem === 'no-media') {
+    shareStatus(`The picture isn't reaching ${name}. This computer and the Pi may be on different networks, or a firewall is blocking it.`);
+  } else if (d.problem === 'no-decode') {
+    s.triedCodecs = s.triedCodecs || [d.codec || 'VP8'];
+    const next = CODEC_ORDER.find((c) => !s.triedCodecs.includes(c) && canSend(c));
+    if (next) {
+      s.triedCodecs.push(next);
+      s.codecPref = next;
+      s.fallbackNote = `${name} couldn't decode ${d.codec || 'the video'}. Trying ${next}…`;
+      shareStatus(s.fallbackNote);
+      negotiate();
+    } else if (!s.downscaled) {
+      s.downscaled = true;
+      s.track.applyConstraints({ width: { max: 1280 }, height: { max: 720 }, frameRate: { max: 15 } }).catch(() => {});
+      s.triedCodecs = [];
+      s.codecPref = null;
+      s.fallbackNote = `${name} still couldn't decode it. Trying a lower resolution…`;
+      shareStatus(s.fallbackNote);
+      negotiate();
+    } else {
+      shareStatus(`${name} can't decode the picture in any format. Restart the Pi, and check that it's running the latest PiScreen.`);
+    }
+  }
+}
+
 async function negotiate() {
   const s = share;
   if (s.pc) s.pc.close();
   const pc = new RTCPeerConnection({ iceServers: [] });
   s.pc = pc;
   for (const t of s.stream.getTracks()) pc.addTrack(t, s.stream);
+  if (s.codecPref) preferCodec(pc, s.codecPref);
   if (s.paused) await videoSender(s)?.replaceTrack(null);
   pc.addEventListener('connectionstatechange', () => {
     if (share !== s || s.pc !== pc) return;
     const st = pc.connectionState;
-    if (st === 'connected') shareStatus(`Live on ${access?.name || 'the Pi'}`, true);
+    // "Live" waits for the Pi to confirm a picture is on screen (its 'ok' report).
+    if (st === 'connected' && !(s.diagOk)) shareStatus(`Connected. Waiting for the picture on ${access?.name || 'the Pi'}…`);
     else if (st === 'connecting') shareStatus('Connecting to the Pi…');
     else if (st === 'failed') shareStatus('Connection to the Pi failed — it will retry automatically.');
   });
-  shareStatus('Connecting to the Pi…');
+  shareStatus(s.fallbackNote || 'Connecting to the Pi…');
   await pc.setLocalDescription(await pc.createOffer());
   await waitForIce(pc);
   if (share !== s) return;
@@ -606,6 +670,8 @@ async function onSignal(sig) {
       await s.pc.setRemoteDescription({ type: 'answer', sdp: sig.sdp });
       await applyEncoding(s);
       startStats(s);
+    } else if (sig.type === 'diag') {
+      handleDiag(s, sig.data);
     } else if (sig.type === 'stop') {
       stopShare(false);
       shareStatus('Sharing was stopped from the Pi remote.');
@@ -642,6 +708,7 @@ function stopShare(notify) {
   if (s.pc) s.pc.close();
   s.stream.getTracks().forEach((t) => t.stop());
   $('#stats').textContent = '';
+  $('#diagInfo').textContent = '';
   shareStatus('');
   P.showToolbar(false);
   updateShareUi();

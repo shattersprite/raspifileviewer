@@ -57,6 +57,19 @@ Windows can only extend onto a screen it thinks is plugged in, so the app needs 
 The picture is sent directly from your PC to the Pi over WebRTC, so it never leaves your network.
 On a Pi 4, use **Sharp text · 30 fps** or **Light**. A Pi 5 can usually handle **Smooth · 60 fps**.
 
+### If screen sharing shows a black screen
+PiScreen checks every share and works around common problems by itself:
+- **The Pi can't decode the video:** the app switches format (VP8, then H.264, which a Pi 4 decodes in hardware), then tries a lower resolution.
+- **The Pi decodes the video but doesn't draw it:** the Pi switches to drawing frames itself ("canvas drawing").
+- **Nothing reaches the Pi:** the Pi's screen and the app both say so. This is a network problem: put the computer and the Pi on the same network, or allow PiScreen through your firewall or VPN.
+
+The app's **Share screen** panel shows what the Pi reports, for example "VP8, 1200 packets, 0 frames". Include that line if you report a problem.
+
+To always use canvas drawing on a Pi, add `?canvas=1` to the display address. Then restart the Pi:
+```bash
+sed -i 's#^URL=.*#URL="${PISCREEN_URL:-http://localhost:8080/display?canvas=1}"#' ~/piscreen/kiosk.sh
+```
+
 ### Using a Raspberry Pi 3 (or Zero)
 PiScreen detects a Pi 3 or Zero and switches to **low-power mode** on its own:
 - Screen sharing is capped at **1280×720, 15 fps**, and the 60 fps option is turned off. For the extra-monitor setup, set the virtual display to **1280×720** so text stays sharp.

@@ -23,6 +23,11 @@
 
   .mode-img #img, .mode-video #vid, .mode-stream #svid { display: block; }
   #svid { transform: translate(-50%, -50%); width: 100vw; height: 100vh; object-fit: contain; }
+  #scanvas { transform: translate(-50%, -50%); width: 100vw; height: 100vh; object-fit: contain; }
+  .mode-stream.use-canvas #scanvas { display: block; }
+  .mode-stream.use-canvas #svid { visibility: hidden; }
+  /* While a share is starting (or failing), cover the video with a message instead of black. */
+  .mode-stream.waiting #msg { display: flex; background: #000; z-index: 5; }
 
   .screen { position: fixed; inset: 0; display: none; flex-direction: column; align-items: center;
     justify-content: center; gap: 2vh; text-align: center; padding: 4vw; }
@@ -93,6 +98,7 @@
     <img id="img" class="media" alt="">
     <video id="vid" class="media" playsinline></video>
     <video id="svid" class="media" playsinline autoplay></video>
+    <canvas id="scanvas" class="media"></canvas>
   </div>
 
   <div id="idle" class="screen">
@@ -144,6 +150,7 @@ const post = (url, body) => fetch(url, {
 
 function setMode(mode) {
   document.body.classList.remove('mode-idle', 'mode-msg', 'mode-img', 'mode-video', 'mode-stream');
+  if (mode !== 'stream') document.body.classList.remove('waiting');
   document.body.classList.add('mode-' + mode);
   if (mode !== 'video' && vid.getAttribute('src')) {
     vid.pause(); vid.removeAttribute('src'); vid.dataset.src = ''; vid.load();
@@ -197,9 +204,15 @@ function closeRtc() {
   if (!rtc) return;
   if (rtc.pc) rtc.pc.close();
   if (rtc.retry) clearTimeout(rtc.retry);
+  clearInterval(rtc.watch);
+  if (rtc.stopCanvas) rtc.stopCanvas();
   rtc = null;
   svid.srcObject = null;
+  document.body.classList.remove('waiting', 'use-canvas');
 }
+
+// ?canvas=1 on the display URL forces canvas drawing (a manual workaround for black video).
+const FORCE_CANVAS = new URLSearchParams(location.search).get('canvas') === '1';
 
 function waitForIce(pc) {
   if (pc.iceGatheringState === 'complete') return Promise.resolve();
@@ -213,32 +226,162 @@ function waitForIce(pc) {
 function handleStream(stream) {
   if (!rtc || rtc.session !== stream.session) {
     closeRtc();
-    rtc = { session: stream.session, pc: null, live: false };
+    rtc = { session: stream.session, source: stream.source, pc: null, shown: false };
     post('/api/signal', { type: 'ready', session: stream.session });
   }
-  if (rtc.live) setMode('stream');
-  else message(`Connecting to ${stream.source}…`);
+  rtc.source = stream.source;
+  setMode('stream');
+  // Never show a black screen: keep a message up until a real frame is on screen.
+  if (!rtc.shown) streamNote(rtc.note || `Connecting to ${stream.source}…`, rtc.noteIsError);
+}
+
+function streamNote(text, isError) {
+  $('#msgText').textContent = text || '';
+  $('#msg').classList.toggle('error', !!isError);
+  document.body.classList.toggle('waiting', !!text);
+}
+
+function markShown(me) {
+  if (me.shown || rtc !== me) return;
+  me.shown = true;
+  me.note = null;
+  streamNote('');
+}
+
+// What the Pi is actually receiving and decoding.
+async function inboundStats(pc) {
+  const out = { packets: 0, decoded: 0, codec: '', decoder: '', width: 0, height: 0, state: pc.connectionState };
+  let codecId = null;
+  const report = await pc.getStats();
+  report.forEach((s) => {
+    if (s.type === 'inbound-rtp' && s.kind === 'video') {
+      out.packets = s.packetsReceived || 0;
+      out.decoded = s.framesDecoded || 0;
+      out.decoder = s.decoderImplementation || '';
+      out.width = s.frameWidth || 0;
+      out.height = s.frameHeight || 0;
+      codecId = s.codecId;
+    }
+  });
+  const codec = codecId && report.get(codecId);
+  if (codec) out.codec = codec.mimeType.replace(/^video\//i, '');
+  return out;
+}
+
+function reportDiag(me, problem, stats) {
+  post('/api/signal', { type: 'diag', session: me.session, data: { problem, canvas: !!me.canvas, ...stats } });
+}
+
+// Watch the first seconds of a share and work out what's wrong if no picture appears:
+//   no-media  - nothing arrives (network / firewall)
+//   no-decode - video arrives but this Pi can't decode it (the app then tries another format)
+//   no-render - frames decode but the video element doesn't draw them (switch to canvas drawing)
+function startWatchdog(me) {
+  clearInterval(me.watch);
+  const pc = me.pc;
+  const started = performance.now();
+  me.problem = null;
+  if (FORCE_CANVAS || me.canvas) {
+    me.canvas = false;
+    startCanvas(me);
+  } else if ('requestVideoFrameCallback' in svid) {
+    const onFrame = () => {
+      if (rtc !== me || me.pc !== pc) return;
+      if (!me.canvas) markShown(me);
+      svid.requestVideoFrameCallback(onFrame);
+    };
+    svid.requestVideoFrameCallback(onFrame);
+  }
+  me.watch = setInterval(async () => {
+    if (rtc !== me || me.pc !== pc) { clearInterval(me.watch); return; }
+    const stats = await inboundStats(pc).catch(() => null);
+    if (!stats) return;
+    if (me.shown) {
+      clearInterval(me.watch);
+      reportDiag(me, 'ok', stats);
+      return;
+    }
+    if (performance.now() - started < 6000) return;
+    const problem = pc.connectionState !== 'connected' || !stats.packets ? 'no-media'
+      : !stats.decoded ? 'no-decode' : 'no-render';
+    if (problem === me.problem) return;
+    me.problem = problem;
+    reportDiag(me, problem, stats);
+    if (problem === 'no-render') {
+      startCanvas(me);
+    } else if (problem === 'no-media') {
+      me.note = `Nothing is arriving from ${me.source}. The computer and this Pi may be on different networks, or a firewall is blocking the picture.`;
+      me.noteIsError = true;
+      streamNote(me.note, true);
+    } else {
+      me.note = `This Pi couldn't decode the picture from ${me.source}. Trying another format…`;
+      me.noteIsError = false;
+      streamNote(me.note);
+    }
+  }, 1500);
+}
+
+// Fallback renderer: draw each decoded frame onto a canvas ourselves.
+function startCanvas(me) {
+  if (me.canvas) return;
+  me.canvas = true;
+  document.body.classList.add('use-canvas');
+  const canvas = $('#scanvas');
+  const ctx = canvas.getContext('2d');
+  const track = svid.srcObject && svid.srcObject.getVideoTracks()[0];
+  const draw = (src, w, h) => {
+    if (!w || !h) return;
+    if (canvas.width !== w) canvas.width = w;
+    if (canvas.height !== h) canvas.height = h;
+    ctx.drawImage(src, 0, 0, w, h);
+    markShown(me);
+  };
+  if (track && window.MediaStreamTrackProcessor) {
+    const reader = new MediaStreamTrackProcessor({ track }).readable.getReader();
+    me.stopCanvas = () => reader.cancel().catch(() => {});
+    (async () => {
+      for (;;) {
+        const { value: frame, done } = await reader.read().catch(() => ({ done: true }));
+        if (done) break;
+        if (rtc !== me) { frame.close(); break; }
+        draw(frame, frame.displayWidth, frame.displayHeight);
+        frame.close();
+      }
+    })();
+  } else {
+    const loop = () => {
+      if (rtc !== me) return;
+      draw(svid, svid.videoWidth, svid.videoHeight);
+      me.raf = requestAnimationFrame(loop);
+    };
+    loop();
+    me.stopCanvas = () => cancelAnimationFrame(me.raf);
+  }
 }
 
 async function onOffer(sig) {
   if (!rtc || sig.session !== rtc.session) return;
   if (rtc.pc) rtc.pc.close();
+  if (rtc.stopCanvas) { rtc.stopCanvas(); rtc.stopCanvas = null; }
+  const keepCanvas = rtc.canvas;
   const pc = new RTCPeerConnection({ iceServers: [] });
   const me = rtc;
-  me.pc = pc; me.live = false;
+  me.pc = pc;
+  me.shown = false;
+  me.canvas = keepCanvas; // once canvas drawing was needed, keep using it for this share
   pc.ontrack = (e) => {
     pc.getReceivers().forEach((r) => { if ('jitterBufferTarget' in r) r.jitterBufferTarget = 0; });
     svid.srcObject = e.streams[0] || new MediaStream([e.track]);
     svid.play().catch(() => { svid.muted = true; svid.play().catch(() => {}); });
-    me.live = true;
-    if (S && S.view.stream && S.view.stream.session === me.session) setMode('stream');
+    if (e.track.kind === 'video') startWatchdog(me);
   };
   pc.onconnectionstatechange = () => {
     if (rtc !== me || me.pc !== pc) return;
     if (pc.connectionState === 'failed') {
       // Ask the app to try again; if the app is gone, the remote's Stop button ends the share.
-      message('Connection lost — retrying…');
-      me.live = false;
+      me.shown = false;
+      me.note = 'The connection to the computer dropped. Reconnecting…';
+      streamNote(me.note);
       me.retry = setTimeout(() => post('/api/signal', { type: 'ready', session: me.session }), 2000);
     }
   };
@@ -281,7 +424,9 @@ function render() {
   document.body.classList.toggle('is-blank', v.blank);
 
   if (v.stream) {
+    // A shared screen is never rotated or cropped: drop the file view's rotate/fit settings.
     document.documentElement.style.setProperty('--rot', '0deg');
+    document.body.classList.remove('rot90', 'rot180', 'rot270', 'fit-width', 'fit-cover');
     handleStream(v.stream);
     return;
   }

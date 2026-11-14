@@ -693,7 +693,7 @@ def control():
 def signal():
     data = request.get_json(force=True, silent=True) or {}
     kind, session = data.get("type"), str(data.get("session", ""))[:64]
-    if not session or kind not in ("start", "ready", "offer", "answer", "stop"):
+    if not session or kind not in ("start", "ready", "offer", "answer", "stop", "diag"):
         return jsonify(error="Bad signal"), 400
     with _lock:
         stream = _state["view"].get("stream")
@@ -711,7 +711,9 @@ def signal():
             return jsonify(ok=True)
         if not stream or stream["session"] != session:
             return jsonify(error="No such stream"), 409
-    broadcast("signal", {"type": kind, "session": session, "sdp": data.get("sdp")})
+    # "diag" is the Pi telling the app what it sees (packets, frames, codec) so the app can adapt.
+    extra = data.get("data") if kind == "diag" and isinstance(data.get("data"), dict) else None
+    broadcast("signal", {"type": kind, "session": session, "sdp": data.get("sdp"), "data": extra})
     return jsonify(ok=True)
 
 
